@@ -221,6 +221,17 @@ def compute_match(prop: Property, listing: Listing, profile: SearchProfile) -> M
     score = 0.0
 
     if passed:
+        # Requirements-met rows: gates, not weights — recorded with their matching
+        # evidence so the breakdown shows they were enforced (and on what basis)
+        for key, required in (profile.must_haves or {}).items():
+            if required and key in STRUCTURED_CHECKS:
+                check, label = STRUCTURED_CHECKS[key]
+                _, reason = check(prop, listing, profile)
+                breakdown.append({
+                    "label": label, "kind": "must", "weight": 0,
+                    "satisfaction": 1.0, "reason": reason,
+                })
+
         criteria = _soft_criteria(profile)
         desires = [c["text"] for c in criteria if c.get("kind") == "desire" and c.get("text")]
         desire_scores = score_desires(prop, listing, desires)

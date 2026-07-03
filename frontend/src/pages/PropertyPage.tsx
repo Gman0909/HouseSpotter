@@ -1,7 +1,7 @@
 import { useParams, useSearchParams, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { MapContainer, TileLayer, CircleMarker } from 'react-leaflet'
-import { ArrowLeft, ExternalLink, MapPin } from 'lucide-react'
+import { ArrowLeft, Check, ExternalLink, MapPin } from 'lucide-react'
 import { api } from '../lib/api'
 import type { PropertyDetail } from '../lib/types'
 import ScoreRing from '../components/ScoreRing'
@@ -92,21 +92,44 @@ export default function PropertyPage() {
         <section className="mt-6 rounded-2xl border border-stone-200 bg-white p-5 dark:border-stone-800 dark:bg-stone-900">
           <h2 className="mb-1 font-semibold">Why this scores {Math.round(match.score)}</h2>
           {match.rationale && <p className="mb-3 text-sm text-stone-600 dark:text-stone-400">{match.rationale}</p>}
+
+          {match.breakdown.some((b) => b.kind === 'must') && (
+            <div
+              className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-xl bg-brand-50 px-3.5 py-2.5 dark:bg-brand-950"
+              title="Hard requirements — properties without these never appear, so they gate rather than weight the score"
+            >
+              <span className="text-xs font-semibold uppercase tracking-wide text-brand-700 dark:text-brand-300">
+                Requirements met
+              </span>
+              {match.breakdown
+                .filter((b) => b.kind === 'must')
+                .map((b) => (
+                  <span key={b.label} className="flex items-center gap-1 text-xs text-brand-800 dark:text-brand-200">
+                    <Check size={13} className="shrink-0" />
+                    <b>{b.label}</b>
+                    {b.reason && <span className="text-brand-600/80 dark:text-brand-300/80">— {b.reason}</span>}
+                  </span>
+                ))}
+            </div>
+          )}
+
           <div className="space-y-2">
-            {match.breakdown.map((entry) => (
-              <div key={entry.label} className="flex items-center gap-3 text-sm">
-                <div className="w-40 shrink-0 truncate font-medium">{entry.label}</div>
-                <div className="h-2 flex-1 overflow-hidden rounded-full bg-stone-200 dark:bg-stone-700">
-                  <div
-                    className="h-full rounded-full bg-brand-500"
-                    style={{ width: `${entry.satisfaction * 100}%` }}
-                  />
+            {match.breakdown
+              .filter((b) => b.kind !== 'must')
+              .map((entry) => (
+                <div key={entry.label} className="flex items-center gap-3 text-sm">
+                  <div className="w-40 shrink-0 truncate font-medium">{entry.label}</div>
+                  <div className="h-2 flex-1 overflow-hidden rounded-full bg-stone-200 dark:bg-stone-700">
+                    <div
+                      className="h-full rounded-full bg-brand-500"
+                      style={{ width: `${entry.satisfaction * 100}%` }}
+                    />
+                  </div>
+                  <div className="w-24 shrink-0 text-right text-xs text-stone-500">
+                    {entry.reason ?? `${Math.round(entry.satisfaction * 100)}%`}
+                  </div>
                 </div>
-                <div className="w-24 shrink-0 text-right text-xs text-stone-500">
-                  {entry.reason ?? `${Math.round(entry.satisfaction * 100)}%`}
-                </div>
-              </div>
-            ))}
+              ))}
           </div>
         </section>
       )}
