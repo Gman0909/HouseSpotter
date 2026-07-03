@@ -1,0 +1,52 @@
+@import 'tailwindcss';
+@import 'leaflet/dist/leaflet.css';
+
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --color-brand-50: #f0f7f4;
+  --color-brand-100: #dbeee5;
+  --color-brand-200: #b9ddcd;
+  --color-brand-300: #8cc4ae;
+  --color-brand-400: #5ba58b;
+  --color-brand-500: #3b8a70;
+  --color-brand-600: #2b6e5a;
+  --color-brand-700: #245849;
+  --color-brand-800: #1f473c;
+  --color-brand-900: #1b3b32;
+  --color-brand-950: #0d211c;
+}
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-stone-100 text-stone-900 antialiased;
+}
+
+.dark body {
+  @apply bg-stone-950 text-stone-100;
+}
+
+.leaflet-container {
+  font: inherit;
+}
+
+.input {
+  @apply rounded-lg border border-stone-300 bg-transparent px-3 py-1.5 text-sm outline-none focus:border-brand-500 dark:border-stone-700;
+}
+
+/* Map hover cards: suppress Leaflet's default tooltip chrome so our card shows bare */
+.leaflet-tooltip.hs-hovercard {
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
+.leaflet-tooltip.hs-hovercard::before {
+  display: none;
+}

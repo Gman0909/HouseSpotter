@@ -1,0 +1,24 @@
+[Unit]
+Description=HouseSpotter property scout
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=housespotter
+Group=housespotter
+WorkingDirectory=/opt/housespotter
+ExecStart=/opt/housespotter/.venv/bin/python -m uvicorn app.main:app --app-dir backend --host 0.0.0.0 --port 8410
+Restart=on-failure
+RestartSec=10
+
+# Hardening — HouseSpotter only touches its own data dir and its .env
+# (.env is writable so the in-app Settings page can update connection keys)
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/housespotter/data /opt/housespotter/.env
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

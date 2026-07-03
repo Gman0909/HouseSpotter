@@ -1,0 +1,410 @@
+import { useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  Bot, CheckCircle2, Info, KeyRound, LogOut, Mail, Radar, Route, Send, UserRound, XCircle,
+} from 'lucide-react'
+import { api, ApiError } from '../lib/api'
+import MilestonesCard from '../components/MilestonesCard'
+
+interface ConfigItem {
+  key: string
+  label: string
+  section: string
+  secret: boolean
+  kind: 'str' | 'int' | 'bool'
+  restart_required: boolean
+  set: boolean
+  value: string | number | boolean | null
+  hint: string | null
+}
+
+const SECTIONS: {
+  id: string
+  title: string
+  icon: typeof Bot
+  blurb: string
+  help: React.ReactNode
+  tests?: { label: string; endpoint: string }[]
+}[] = [
+  {
+    id: 'ai',
+    title: 'AI — Anthropic',
+    icon: Bot,
+    blurb: 'Powers the Agent chat, free-text desire scoring and area narratives.',
+    help: (
+      <ol className="list-decimal space-y-1 pl-4">
+        <li>Go to <b>platform.claude.com</b> and sign in (or create an account).</li>
+        <li>Open <b>Settings → API keys → Create key</b>.</li>
+        <li>Copy the key (starts with <code>sk-ant-</code>) and paste it here.</li>
+        <li>Costs are pay-as-you-go — HouseSpotter caches every response, so typical usage is a few pounds a month.</li>
+      </ol>
+    ),
+    tests: [{ label: 'Test key', endpoint: '/api/config/test/anthropic' }],
+  },
+  {
+    id: 'telegram',
+    title: 'Telegram alerts',
+    icon: Send,
+    blurb: 'Instant phone notifications for new matches and price drops.',
+    help: (
+      <ol className="list-decimal space-y-1 pl-4">
+        <li>In Telegram, open <b>t.me/BotFather</b> (blue verified tick) and press <b>Start</b>.</li>
+        <li>Send <code>/newbot</code> — pick any display name, then a unique username ending in <code>bot</code>.</li>
+        <li>Copy the token BotFather replies with (looks like <code>71234…:AAH…</code>) into the field here.</li>
+        <li>Open your new bot's chat and press <b>Start</b> — bots can't message you first.</li>
+        <li>Hit <b>Detect chat ID</b> below — it finds your chat automatically. Then <b>Send test</b>.</li>
+      </ol>
+    ),
+    tests: [
+      { label: 'Detect chat ID', endpoint: '/api/config/telegram-detect-chat' },
+      { label: 'Send test', endpoint: '/api/config/test/telegram' },
+    ],
+  },
+  {
+    id: 'email',
+    title: 'Email alerts',
+    icon: Mail,
+    blurb: 'Alternative or additional alert channel; supports daily digests.',
+    help: (
+      <div className="space-y-1.5">
+        <p>Any SMTP account works. For Gmail:</p>
+        <ol className="list-decimal space-y-1 pl-4">
+          <li>Host <code>smtp.gmail.com</code>, port <code>587</code>.</li>
+          <li>Username = your Gmail address.</li>
+          <li>Password: create an <b>App Password</b> at myaccount.google.com → Security → 2-Step Verification → App passwords (normal passwords won't work).</li>
+          <li>From = your Gmail address, To = wherever alerts should land.</li>
+        </ol>
+      </div>
+    ),
+    tests: [{ label: 'Send test email', endpoint: '/api/config/test/email' }],
+  },
+  {
+    id: 'routing',
+    title: 'Travel times — OpenRouteService',
+    icon: Route,
+    blurb: 'Real drive/cycle/walk times to your Milestones. Free, no card needed.',
+    help: (
+      <ol className="list-decimal space-y-1 pl-4">
+        <li>Sign up free at <b>openrouteservice.org</b> (email only, no card).</li>
+        <li>In the dashboard, request a <b>token</b> (standard/free plan).</li>
+        <li>Paste the key here — it's a long <code>eyJ…</code> string.</li>
+        <li>Free quota (2,000 routes/day) is far beyond what HouseSpotter uses; without a key, travel times fall back to distance estimates.</li>
+      </ol>
+    ),
+    tests: [{ label: 'Test key', endpoint: '/api/config/test/ors' }],
+  },
+  {
+    id: 'scraping',
+    title: 'Scanning',
+    icon: Radar,
+    blurb: 'Portal scanning behaviour.',
+    help: (
+      <div className="space-y-1.5">
+        <p><b>Automatic scanning</b> polls the portals every ~30 minutes. Turning it off leaves manual "Scan now" working.</p>
+        <p><b>Zoopla adapter</b> needs a headless browser (Playwright + Chromium) installed on the server and is experimental — Rightmove and OnTheMarket work without it.</p>
+        <p>Changes here need a service restart: <code>sudo systemctl restart housespotter</code>.</p>
+      </div>
+    ),
+  },
+]
+
+export default function ConfigPage() {
+  const config = useQuery({
+    queryKey: ['config'],
+    queryFn: () => api.get<ConfigItem[]>('/api/config'),
+  })
+
+  return (
+    <div className="mx-auto max-w-2xl space-y-5 p-4 md:p-6">
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
+        <p className="text-sm text-stone-500">
+          Milestones, connections and account — applies to the whole app, not any one search profile.
+        </p>
+      </div>
+
+      <MilestonesCard />
+
+      {SECTIONS.map((section) => (
+        <ConfigSection
+          key={section.id}
+          section={section}
+          items={(config.data ?? []).filter((i) => i.section === section.id)}
+        />
+      ))}
+
+      <AccountSection />
+    </div>
+  )
+}
+
+function ConfigSection({
+  section,
+  items,
+}: {
+  section: (typeof SECTIONS)[number]
+  items: ConfigItem[]
+}) {
+  const qc = useQueryClient()
+  const [showHelp, setShowHelp] = useState(false)
+  const [draft, setDraft] = useState<Record<string, string | boolean>>({})
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null)
+  const Icon = section.icon
+
+  const save = useMutation({
+    mutationFn: () => api.patch('/api/config', { values: draft }),
+    onSuccess: () => {
+      setDraft({})
+      setResult({ ok: true, text: 'Saved and applied.' })
+      qc.invalidateQueries({ queryKey: ['config'] })
+    },
+    onError: (err) =>
+      setResult({ ok: false, text: err instanceof ApiError ? err.message : 'Save failed' }),
+  })
+
+  const runTest = useMutation({
+    mutationFn: (endpoint: string) => api.post<{ detail?: string; chat_id?: string }>(endpoint),
+    onMutate: () => setResult(null),
+    onSuccess: (res) => {
+      setResult({ ok: true, text: res.detail ?? (res.chat_id ? `Found chat ${res.chat_id} — saved.` : 'OK') })
+      qc.invalidateQueries({ queryKey: ['config'] })
+    },
+    onError: (err) =>
+      setResult({ ok: false, text: err instanceof ApiError ? err.message : 'Test failed' }),
+  })
+
+  const dirty = Object.keys(draft).length > 0
+  const needsRestart = items.some((i) => i.restart_required && i.key in draft)
+
+  return (
+    <div className="rounded-2xl border border-stone-200 bg-white p-5 dark:border-stone-800 dark:bg-stone-900">
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <h2 className="flex items-center gap-2 font-semibold">
+          <Icon size={16} /> {section.title}
+        </h2>
+        <button
+          onClick={() => setShowHelp((v) => !v)}
+          title="How to set this up"
+          className={`rounded-full p-1 transition ${showHelp ? 'bg-brand-100 text-brand-700 dark:bg-brand-900 dark:text-brand-300' : 'text-stone-400 hover:text-brand-600'}`}
+        >
+          <Info size={15} />
+        </button>
+      </div>
+      <p className="mb-3 text-xs text-stone-400">{section.blurb}</p>
+
+      {showHelp && (
+        <div className="mb-4 rounded-xl bg-stone-50 p-3.5 text-sm leading-relaxed text-stone-600 dark:bg-stone-800/60 dark:text-stone-300">
+          {section.help}
+        </div>
+      )}
+
+      <div className="space-y-3">
+        {items.map((item) => (
+          <div key={item.key} className="flex flex-wrap items-center justify-between gap-2">
+            <span className="flex items-center gap-1.5 text-sm font-medium">
+              {item.label}
+              {item.kind !== 'bool' && (
+                item.set ? (
+                  <CheckCircle2 size={13} className="text-brand-500" />
+                ) : (
+                  <XCircle size={13} className="text-stone-300 dark:text-stone-600" />
+                )
+              )}
+            </span>
+            {item.kind === 'bool' ? (
+              <button
+                onClick={() =>
+                  setDraft((d) => ({
+                    ...d,
+                    [item.key]: !(item.key in d ? (d[item.key] as boolean) : (item.value as boolean)),
+                  }))
+                }
+                className={`h-6 w-11 rounded-full transition ${
+                  (item.key in draft ? draft[item.key] : item.value)
+                    ? 'bg-brand-600'
+                    : 'bg-stone-300 dark:bg-stone-700'
+                }`}
+              >
+                <span
+                  className={`block h-5 w-5 rounded-full bg-white shadow transition ${
+                    (item.key in draft ? draft[item.key] : item.value) ? 'translate-x-5' : 'translate-x-0.5'
+                  }`}
+                />
+              </button>
+            ) : (
+              <input
+                className="input w-64 max-w-full"
+                type={item.secret ? 'password' : 'text'}
+                placeholder={
+                  item.secret
+                    ? item.set
+                      ? `set (${item.hint}) — paste to replace`
+                      : 'not set'
+                    : String(item.value ?? '')
+                }
+                value={(draft[item.key] as string) ?? ''}
+                onChange={(e) => setDraft((d) => ({ ...d, [item.key]: e.target.value }))}
+              />
+            )}
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <button
+          onClick={() => save.mutate()}
+          disabled={!dirty || save.isPending}
+          className="rounded-lg bg-brand-600 px-3.5 py-1.5 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-40"
+        >
+          {save.isPending ? 'Saving…' : 'Save'}
+        </button>
+        {section.tests?.map((t) => (
+          <button
+            key={t.endpoint}
+            onClick={() => runTest.mutate(t.endpoint)}
+            disabled={runTest.isPending}
+            className="rounded-lg border border-stone-300 px-3.5 py-1.5 text-sm font-semibold text-stone-600 hover:bg-stone-50 disabled:opacity-50 dark:border-stone-700 dark:text-stone-300 dark:hover:bg-stone-800"
+          >
+            {runTest.isPending ? '…' : t.label}
+          </button>
+        ))}
+        {needsRestart && (
+          <span className="text-xs text-amber-600 dark:text-amber-400">needs a service restart</span>
+        )}
+      </div>
+      {result && (
+        <p
+          className={`mt-2.5 rounded-lg px-3 py-2 text-sm ${
+            result.ok
+              ? 'bg-brand-50 text-brand-700 dark:bg-brand-950 dark:text-brand-300'
+              : 'bg-red-50 text-red-600 dark:bg-red-950 dark:text-red-300'
+          }`}
+        >
+          {result.text}
+        </p>
+      )}
+    </div>
+  )
+}
+
+function AccountSection() {
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newUsername, setNewUsername] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null)
+
+  const me = useQuery({
+    queryKey: ['me'],
+    queryFn: () => api.get<{ username: string }>('/api/auth/me'),
+  })
+
+  const save = useMutation({
+    mutationFn: () =>
+      api.post<{ ok: boolean; username: string; changed: string[] }>('/api/auth/account', {
+        current_password: currentPassword,
+        new_username: newUsername.trim() || null,
+        new_password: newPassword || null,
+      }),
+    onSuccess: (res) => {
+      setMessage({ ok: true, text: `Updated: ${res.changed.join(' and ')}.` })
+      setCurrentPassword('')
+      setNewUsername('')
+      setNewPassword('')
+      setConfirmPassword('')
+      me.refetch()
+    },
+    onError: (err) =>
+      setMessage({ ok: false, text: err instanceof ApiError ? err.message : 'Update failed' }),
+  })
+
+  const logout = useMutation({
+    mutationFn: () => api.post('/api/auth/logout'),
+    onSettled: () => {
+      window.location.href = '/'
+    },
+  })
+
+  function submit() {
+    setMessage(null)
+    if (!currentPassword) return setMessage({ ok: false, text: 'Enter your current password to make changes.' })
+    if (!newUsername.trim() && !newPassword) return setMessage({ ok: false, text: 'Enter a new username and/or a new password.' })
+    if (newPassword && newPassword !== confirmPassword) return setMessage({ ok: false, text: 'New passwords don’t match.' })
+    if (newPassword && newPassword.length < 8) return setMessage({ ok: false, text: 'New password must be at least 8 characters.' })
+    save.mutate()
+  }
+
+  return (
+    <div className="rounded-2xl border border-stone-200 bg-white p-5 dark:border-stone-800 dark:bg-stone-900">
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="flex items-center gap-2 font-semibold">
+          <KeyRound size={16} /> Account
+        </h2>
+        <span className="flex items-center gap-1.5 text-xs text-stone-400">
+          <UserRound size={13} /> {me.data?.username ?? '…'}
+        </span>
+      </div>
+      <div className="space-y-3">
+        <input
+          type="password"
+          className="input w-full"
+          placeholder="Current password"
+          value={currentPassword}
+          onChange={(e) => setCurrentPassword(e.target.value)}
+          autoComplete="current-password"
+        />
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <input
+            className="input"
+            placeholder="New username (optional)"
+            value={newUsername}
+            onChange={(e) => setNewUsername(e.target.value)}
+            autoComplete="username"
+          />
+          <input
+            type="password"
+            className="input"
+            placeholder="New password (optional)"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            autoComplete="new-password"
+          />
+          <input
+            type="password"
+            className="input"
+            placeholder="Confirm new password"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            autoComplete="new-password"
+          />
+        </div>
+        {message && (
+          <p
+            className={`rounded-lg px-3 py-2 text-sm ${
+              message.ok
+                ? 'bg-brand-50 text-brand-700 dark:bg-brand-950 dark:text-brand-300'
+                : 'bg-red-50 text-red-600 dark:bg-red-950 dark:text-red-300'
+            }`}
+          >
+            {message.text}
+          </p>
+        )}
+        <div className="flex items-center justify-between">
+          <button
+            onClick={submit}
+            disabled={save.isPending}
+            className="rounded-lg bg-brand-600 px-3.5 py-1.5 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
+          >
+            {save.isPending ? 'Saving…' : 'Save changes'}
+          </button>
+          <button
+            onClick={() => logout.mutate()}
+            className="flex items-center gap-1.5 rounded-lg border border-stone-300 px-3.5 py-1.5 text-sm font-semibold text-stone-700 hover:bg-stone-100 dark:border-stone-700 dark:text-stone-300 dark:hover:bg-stone-800"
+          >
+            <LogOut size={14} /> Sign out
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
