@@ -11,8 +11,9 @@ from ..config import settings
 log = logging.getLogger("housespotter.notify")
 
 
-def send_telegram(text: str, photo_url: str | None = None) -> bool:
-    if not settings.telegram_bot_token or not settings.telegram_chat_id:
+def send_telegram(text: str, photo_url: str | None = None, chat_id: str | None = None) -> bool:
+    chat_id = chat_id or settings.telegram_chat_id
+    if not settings.telegram_bot_token or not chat_id:
         log.debug("Telegram not configured; skipping")
         return False
     base = f"https://api.telegram.org/bot{settings.telegram_bot_token}"
@@ -21,7 +22,7 @@ def send_telegram(text: str, photo_url: str | None = None) -> bool:
             resp = httpx.post(
                 f"{base}/sendPhoto",
                 data={
-                    "chat_id": settings.telegram_chat_id,
+                    "chat_id": chat_id,
                     "photo": photo_url,
                     "caption": text[:1024],
                     "parse_mode": "HTML",
@@ -32,7 +33,7 @@ def send_telegram(text: str, photo_url: str | None = None) -> bool:
             resp = httpx.post(
                 f"{base}/sendMessage",
                 data={
-                    "chat_id": settings.telegram_chat_id,
+                    "chat_id": chat_id,
                     "text": text[:4096],
                     "parse_mode": "HTML",
                     "disable_web_page_preview": False,
@@ -48,14 +49,15 @@ def send_telegram(text: str, photo_url: str | None = None) -> bool:
         return False
 
 
-def send_email(subject: str, html_body: str) -> bool:
-    if not settings.smtp_host or not settings.smtp_to:
+def send_email(subject: str, html_body: str, to: str | None = None) -> bool:
+    to = to or settings.smtp_to
+    if not settings.smtp_host or not to:
         log.debug("SMTP not configured; skipping")
         return False
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = settings.smtp_from or settings.smtp_user
-    msg["To"] = settings.smtp_to
+    msg["To"] = to
     msg.attach(MIMEText(html_body, "html", "utf-8"))
     try:
         with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=30) as server:

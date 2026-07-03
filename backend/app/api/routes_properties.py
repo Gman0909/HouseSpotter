@@ -3,9 +3,9 @@ from sqlmodel import Session, select
 
 from ..auth import require_user
 from ..db import get_session
-from ..models import Listing, MatchScore, Property, SearchProfile
+from ..models import Listing, MatchScore, Property, SearchProfile, User
 
-router = APIRouter(prefix="/api/properties", tags=["properties"], dependencies=[Depends(require_user)])
+router = APIRouter(prefix="/api/properties", tags=["properties"])
 
 
 def _card(prop: Property, listing: Listing | None, match: MatchScore | None, access: int | None = None) -> dict:
@@ -46,9 +46,12 @@ def list_properties(
     limit: int = Query(60, le=200),
     offset: int = 0,
     session: Session = Depends(get_session),
+    user: User = Depends(require_user),
 ):
     """Card feed. With profile_id, joins match scores for that profile's current criteria."""
     profile = session.get(SearchProfile, profile_id) if profile_id else None
+    if profile and profile.user_id != user.id:
+        raise HTTPException(404)
 
     props = session.exec(select(Property)).all()
     listings_by_prop: dict[int, Listing] = {}
@@ -88,7 +91,7 @@ def list_properties(
                 continue
         visible.append((prop, listing, match))
 
-    access = access_scores(session, [p.id for p, _, _ in visible])
+    access = access_scores(session, [p.id for p, _, _ in visible], user.id)
     cards = [_card(p, l, m, access.get(p.id)) for p, l, m in visible]
 
     key = {
@@ -103,7 +106,7 @@ def list_properties(
 
 
 @router.get("/{property_id}")
-def get_property(property_id: int, profile_id: int | None = None, session: Session = Depends(get_session)):
+def get_property(property_id: int, profile_id: int | None = None, session: Session = Depends(get_session), user: User = Depends(require_user)):
     prop = session.get(Property, property_id)
     if not prop:
         raise HTTPException(404)
@@ -111,7 +114,7 @@ def get_property(property_id: int, profile_id: int | None = None, session: Sessi
     match = None
     if profile_id:
         profile = session.get(SearchProfile, profile_id)
-        if profile:
+        if profile and profile.user_id == user.id:
             match = session.exec(
                 select(MatchScore).where(
                     MatchScore.property_id == property_id,
@@ -127,12 +130,12 @@ def get_property(property_id: int, profile_id: int | None = None, session: Sessi
 
 
 @router.get("/{property_id}/travel")
-def property_travel(property_id: int, force: bool = False, session: Session = Depends(get_session)):
-    """Travel times to every milestone (computes + caches ORS results on first view)."""
+def property_travel(property_id: int, force: bool = False, session: Session = Depends(get_session), user: User = Depends(require_user)):
+    """Travel times to this user's milestones (computes + caches ORS on first view)."""
     if not session.get(Property, property_id):
         raise HTTPException(404)
     from ..research.travel import access_score_single, compute_property_travel
 
-    rows = compute_property_travel(property_id, force=force)
-    score, avg_car = access_score_single(property_id)
+    rows = compute_property_travel(property_id, user.id, force=force)
+    score, avg_car = access_score_single(property_id, user.id)
     return {"milestones": rows, "access_score": score, "avg_car_minutes": avg_car}

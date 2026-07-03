@@ -108,10 +108,24 @@ const SECTIONS: {
   },
 ]
 
+interface Me {
+  username: string
+  is_admin: boolean
+  telegram_chat_id: string
+  email_to: string
+}
+
 export default function ConfigPage() {
+  const me = useQuery({
+    queryKey: ['me'],
+    queryFn: () => api.get<Me>('/api/auth/me'),
+  })
+  const isAdmin = me.data?.is_admin ?? false
+
   const config = useQuery({
     queryKey: ['config'],
     queryFn: () => api.get<ConfigItem[]>('/api/config'),
+    enabled: isAdmin,
   })
 
   return (
@@ -119,21 +133,173 @@ export default function ConfigPage() {
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
         <p className="text-sm text-stone-500">
-          Milestones, connections and account — applies to the whole app, not any one search profile.
+          Your milestones, alerts and account{isAdmin ? ' — plus server connections and users (admin)' : ''}.
         </p>
       </div>
 
       <MilestonesCard />
 
-      {SECTIONS.map((section) => (
-        <ConfigSection
-          key={section.id}
-          section={section}
-          items={(config.data ?? []).filter((i) => i.section === section.id)}
-        />
-      ))}
+      {me.data && <MyAlertsCard me={me.data} />}
+
+      {isAdmin &&
+        SECTIONS.map((section) => (
+          <ConfigSection
+            key={section.id}
+            section={section}
+            items={(config.data ?? []).filter((i) => i.section === section.id)}
+          />
+        ))}
+
+      {isAdmin && <UsersCard />}
 
       <AccountSection />
+    </div>
+  )
+}
+
+function MyAlertsCard({ me }: { me: Me }) {
+  const qc = useQueryClient()
+  const [chatId, setChatId] = useState(me.telegram_chat_id)
+  const [emailTo, setEmailTo] = useState(me.email_to)
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null)
+
+  const save = useMutation({
+    mutationFn: () =>
+      api.patch('/api/auth/me/alerts', { telegram_chat_id: chatId.trim(), email_to: emailTo.trim() }),
+    onSuccess: () => {
+      setResult({ ok: true, text: 'Saved.' })
+      qc.invalidateQueries({ queryKey: ['me'] })
+    },
+    onError: (err) => setResult({ ok: false, text: err instanceof ApiError ? err.message : 'Save failed' }),
+  })
+  const test = useMutation({
+    mutationFn: () => api.post<{ detail: string }>('/api/auth/me/test-telegram'),
+    onSuccess: (r) => setResult({ ok: true, text: r.detail }),
+    onError: (err) => setResult({ ok: false, text: err instanceof ApiError ? err.message : 'Test failed' }),
+  })
+
+  const dirty = chatId.trim() !== me.telegram_chat_id || emailTo.trim() !== me.email_to
+  return (
+    <div className="rounded-2xl border border-stone-200 bg-white p-5 dark:border-stone-800 dark:bg-stone-900">
+      <h2 className="mb-1 flex items-center gap-2 font-semibold">
+        <Send size={16} /> My alert targets
+      </h2>
+      <p className="mb-3 text-xs text-stone-400">
+        Where <b>your</b> alerts go. Telegram: message the house bot first, then get your chat ID
+        from <b>t.me/userinfobot</b>. Each user has their own targets.
+      </p>
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="text-sm font-medium">Telegram chat ID</span>
+          <input className="input w-64" value={chatId} onChange={(e) => setChatId(e.target.value)} placeholder="e.g. 5098965168" />
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="text-sm font-medium">Email address</span>
+          <input className="input w-64" value={emailTo} onChange={(e) => setEmailTo(e.target.value)} placeholder="you@example.com" />
+        </div>
+      </div>
+      <div className="mt-4 flex items-center gap-2">
+        <button
+          onClick={() => save.mutate()}
+          disabled={!dirty || save.isPending}
+          className="rounded-lg bg-brand-600 px-3.5 py-1.5 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-40"
+        >
+          Save
+        </button>
+        <button
+          onClick={() => test.mutate()}
+          disabled={test.isPending}
+          className="rounded-lg border border-stone-300 px-3.5 py-1.5 text-sm font-semibold text-stone-600 hover:bg-stone-50 disabled:opacity-50 dark:border-stone-700 dark:text-stone-300 dark:hover:bg-stone-800"
+        >
+          Send test
+        </button>
+      </div>
+      {result && (
+        <p className={`mt-2.5 rounded-lg px-3 py-2 text-sm ${result.ok ? 'bg-brand-50 text-brand-700 dark:bg-brand-950 dark:text-brand-300' : 'bg-red-50 text-red-600 dark:bg-red-950 dark:text-red-300'}`}>
+          {result.text}
+        </p>
+      )}
+    </div>
+  )
+}
+
+interface UserRow {
+  id: number
+  username: string
+  is_admin: boolean
+  created_at: string
+}
+
+function UsersCard() {
+  const qc = useQueryClient()
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+
+  const users = useQuery({
+    queryKey: ['users'],
+    queryFn: () => api.get<UserRow[]>('/api/auth/users'),
+  })
+  const create = useMutation({
+    mutationFn: () => api.post('/api/auth/users', { username: username.trim(), password }),
+    onMutate: () => setError(''),
+    onSuccess: () => {
+      setUsername('')
+      setPassword('')
+      qc.invalidateQueries({ queryKey: ['users'] })
+    },
+    onError: (err) => setError(err instanceof ApiError ? err.message : 'Failed to create user'),
+  })
+  const remove = useMutation({
+    mutationFn: (id: number) => api.delete(`/api/auth/users/${id}`),
+    onMutate: () => setError(''),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
+    onError: (err) => setError(err instanceof ApiError ? err.message : 'Failed to delete user'),
+  })
+
+  return (
+    <div className="rounded-2xl border border-stone-200 bg-white p-5 dark:border-stone-800 dark:bg-stone-900">
+      <h2 className="mb-1 flex items-center gap-2 font-semibold">
+        <UserRound size={16} /> Users
+      </h2>
+      <p className="mb-3 text-xs text-stone-400">
+        Each user has their own login, search profiles, lists, milestones, chat and alerts.
+        Deleting a user removes all their data.
+      </p>
+      <div className="space-y-1.5">
+        {users.data?.map((u) => (
+          <div key={u.id} className="flex items-center justify-between rounded-lg px-2 py-1.5 text-sm hover:bg-stone-50 dark:hover:bg-stone-800/50">
+            <span className="font-medium">
+              {u.username}
+              {u.is_admin && (
+                <span className="ml-2 rounded-full bg-brand-100 px-1.5 py-0.5 text-[10px] font-semibold text-brand-700 dark:bg-brand-900 dark:text-brand-300">
+                  admin
+                </span>
+              )}
+            </span>
+            {!u.is_admin && (
+              <button
+                onClick={() => confirm(`Delete user "${u.username}" and ALL their data?`) && remove.mutate(u.id)}
+                className="text-xs text-stone-400 hover:text-red-500"
+              >
+                Delete
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-stone-200 pt-3 dark:border-stone-700">
+        <input className="input w-36" placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="off" />
+        <input className="input w-44" type="password" placeholder="Password (8+ chars)" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" />
+        <button
+          onClick={() => create.mutate()}
+          disabled={!username.trim() || password.length < 8 || create.isPending}
+          className="rounded-lg bg-brand-600 px-3.5 py-1.5 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-40"
+        >
+          Add user
+        </button>
+      </div>
+      {error && <p className="mt-2 text-sm text-red-500">{error}</p>}
     </div>
   )
 }

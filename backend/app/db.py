@@ -7,7 +7,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 from .config import settings
 from .models import Meta, User  # noqa: F401 — import registers all models
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 engine = create_engine(
     f"sqlite:///{settings.db_path}",
@@ -82,19 +82,80 @@ def _migrate_v2_area_searches(session: Session) -> None:
 # callables taking the session; create_all handles brand-new tables on fresh installs,
 # these handle altering existing installs.
 def _migrate_v3_baseline_snapshots(session: Session) -> None:
-    """Give every existing profile an initial history snapshot."""
+    """Give every existing profile an initial history snapshot.
+
+    Raw SQL on purpose: migrations must not use ORM models, whose columns reflect
+    the NEWEST schema (later migrations may not have run yet)."""
+    import json
+
+    from .history import EDITABLE_FIELDS
+    from .models import ProfileSnapshot
+
+    json_fields = {
+        "property_types", "tenures", "locations", "must_haves", "nice_to_haves",
+        "commutes", "qol_weights", "alert_channels", "quiet_hours",
+    }
+    rows = session.connection().execute(text("SELECT * FROM searchprofile")).mappings().all()
+    for row in rows:
+        data = {}
+        for field in EDITABLE_FIELDS:
+            value = row.get(field)
+            if field in json_fields and isinstance(value, str):
+                try:
+                    value = json.loads(value)
+                except json.JSONDecodeError:
+                    pass
+            data[field] = value
+        session.add(ProfileSnapshot(
+            profile_id=row["id"],
+            criteria_version=row["criteria_version"],
+            source="baseline",
+            data=data,
+        ))
+    session.commit()
+
+
+def _migrate_v4_multi_user(session: Session) -> None:
+    """Add ownership columns and assign all existing data to the first user (admin)."""
+    from sqlalchemy.exc import OperationalError
     from sqlmodel import select
 
-    from .history import snapshot_profile
-    from .models import SearchProfile
+    for stmt in (
+        'ALTER TABLE "user" ADD COLUMN is_admin BOOLEAN DEFAULT 0',
+        'ALTER TABLE "user" ADD COLUMN telegram_chat_id VARCHAR DEFAULT \'\'',
+        'ALTER TABLE "user" ADD COLUMN email_to VARCHAR DEFAULT \'\'',
+        "ALTER TABLE searchprofile ADD COLUMN user_id INTEGER",
+        "ALTER TABLE savedlist ADD COLUMN user_id INTEGER",
+        "ALTER TABLE milestone ADD COLUMN user_id INTEGER",
+        "ALTER TABLE chatmessage ADD COLUMN user_id INTEGER",
+    ):
+        try:
+            session.exec(text(stmt))
+        except OperationalError:
+            pass  # column already exists (fresh install via create_all)
+    session.commit()
 
-    for profile in session.exec(select(SearchProfile)).all():
-        snapshot_profile(session, profile, source="baseline")
+    first = session.exec(select(User).order_by(User.id)).first()
+    if not first:
+        return
+    first.is_admin = True
+    # Existing global alert targets become the admin's personal targets
+    from .config import settings
+
+    if not first.telegram_chat_id and settings.telegram_chat_id:
+        first.telegram_chat_id = settings.telegram_chat_id
+    if not first.email_to and settings.smtp_to:
+        first.email_to = settings.smtp_to
+    session.add(first)
+    for table in ("searchprofile", "savedlist", "milestone", "chatmessage"):
+        session.exec(text(f"UPDATE {table} SET user_id = {first.id} WHERE user_id IS NULL"))
+    session.commit()
 
 
 MIGRATIONS: dict[int, list] = {
     2: [_migrate_v2_area_searches],
     3: [_migrate_v3_baseline_snapshots],
+    4: [_migrate_v4_multi_user],
 }
 
 
@@ -131,7 +192,11 @@ def _ensure_admin_user() -> None:
                 "No user exists and HS_PASSWORD is not set. "
                 "Set HS_USERNAME / HS_PASSWORD in .env for first run."
             )
-        session.add(User(username=settings.username, password_hash=hash_password(settings.password)))
+        session.add(User(
+            username=settings.username,
+            password_hash=hash_password(settings.password),
+            is_admin=True,  # first user administers the server
+        ))
         session.commit()
 
 

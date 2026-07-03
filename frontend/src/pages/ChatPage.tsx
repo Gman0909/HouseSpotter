@@ -1,7 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Send } from 'lucide-react'
+import { Send, Wallet } from 'lucide-react'
 import { api, ApiError } from '../lib/api'
+
+interface AiUsage {
+  month: string
+  input_tokens: number
+  output_tokens: number
+  calls: number
+  cost_usd: number
+  budget_usd: number
+  remaining_usd: number | null
+}
 
 interface Message {
   id?: number
@@ -71,7 +81,10 @@ export default function ChatPage() {
 
   return (
     <div className="mx-auto flex h-full max-w-3xl flex-col p-4 md:p-6">
-      <h1 className="mb-1 text-2xl font-bold tracking-tight">Your agent</h1>
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <h1 className="text-2xl font-bold tracking-tight">Your agent</h1>
+        <UsageChip />
+      </div>
       <p className="mb-4 text-sm text-stone-500">
         Describe what you're looking for — budget, areas, must-haves — and I'll set up your search.
       </p>
@@ -135,6 +148,33 @@ export default function ChatPage() {
         </button>
       </div>
     </div>
+  )
+}
+
+function UsageChip() {
+  const usage = useQuery({
+    queryKey: ['ai-usage'],
+    queryFn: () => api.get<AiUsage>('/api/system/usage'),
+    refetchInterval: 60_000,
+  })
+  const u = usage.data
+  if (!u || !u.budget_usd) return null
+  const pctLeft = Math.max(0, Math.round(((u.remaining_usd ?? 0) / u.budget_usd) * 100))
+  const low = pctLeft < 15
+  const tokens = u.input_tokens + u.output_tokens
+  const tokensLabel = tokens >= 1_000_000 ? `${(tokens / 1_000_000).toFixed(1)}M` : `${Math.round(tokens / 1000)}k`
+  return (
+    <span
+      title={`This month: ${u.calls} AI calls, ${tokensLabel} tokens, ~$${u.cost_usd.toFixed(2)} of your $${u.budget_usd} budget. Anthropic doesn't expose account balance, so this tracks what HouseSpotter itself spends.`}
+      className={`flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${
+        low
+          ? 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
+          : 'bg-stone-100 text-stone-500 dark:bg-stone-800 dark:text-stone-400'
+      }`}
+    >
+      <Wallet size={13} />
+      ${u.remaining_usd?.toFixed(2)} left
+    </span>
   )
 }
 

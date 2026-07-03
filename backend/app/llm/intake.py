@@ -7,7 +7,7 @@ from fastapi import HTTPException
 from sqlmodel import Session, select
 
 from ..config import settings
-from ..models import ChatMessage, SearchProfile, utcnow
+from ..models import ChatMessage, SearchProfile, User, utcnow
 from .client import get_client
 
 log = logging.getLogger("housespotter.intake")
@@ -138,7 +138,7 @@ PROFILE_FIELDS = {
 }
 
 
-def _apply_profile(session: Session, session_id: str, data: dict) -> tuple[SearchProfile, bool]:
+def _apply_profile(session: Session, session_id: str, data: dict, user: User) -> tuple[SearchProfile, bool]:
     """Create or update the profile linked to this chat session. Returns (profile, created)."""
     from ..research.geo import geocode_place
 
@@ -158,9 +158,11 @@ def _apply_profile(session: Session, session_id: str, data: dict) -> tuple[Searc
     profile = None
     if data.get("profile_id"):
         profile = session.get(SearchProfile, data["profile_id"])
+        if profile and profile.user_id != user.id:
+            profile = None  # never touch another user's profile
     created = profile is None
     if profile is None:
-        profile = SearchProfile(name=data["name"], mode=data["mode"])
+        profile = SearchProfile(name=data["name"], mode=data["mode"], user_id=user.id)
 
     for field in PROFILE_FIELDS:
         if field in data and data[field] is not None:
@@ -179,7 +181,7 @@ def _apply_profile(session: Session, session_id: str, data: dict) -> tuple[Searc
     return profile, created
 
 
-def intake_turn(session: Session, session_id: str, text: str) -> dict:
+def intake_turn(session: Session, session_id: str, text: str, user: User) -> dict:
     client = get_client()
     if client is None:
         raise HTTPException(
@@ -190,7 +192,7 @@ def intake_turn(session: Session, session_id: str, text: str) -> dict:
 
     import json
 
-    existing = session.exec(select(SearchProfile)).all()
+    existing = session.exec(select(SearchProfile).where(SearchProfile.user_id == user.id)).all()
     profiles_context = json.dumps([
         {
             "profile_id": p.id, "name": p.name, "mode": p.mode, "active": p.active,
@@ -207,12 +209,14 @@ def intake_turn(session: Session, session_id: str, text: str) -> dict:
     system = SYSTEM + "\n\nCurrent search profiles:\n" + (profiles_context or "[]")
 
     history = session.exec(
-        select(ChatMessage).where(ChatMessage.session_id == session_id).order_by(ChatMessage.id)
+        select(ChatMessage)
+        .where(ChatMessage.session_id == session_id, ChatMessage.user_id == user.id)
+        .order_by(ChatMessage.id)
     ).all()
     messages = [{"role": m.role, "content": m.content} for m in history]
     messages.append({"role": "user", "content": text})
 
-    session.add(ChatMessage(session_id=session_id, role="user", content=text))
+    session.add(ChatMessage(session_id=session_id, role="user", content=text, user_id=user.id))
     session.commit()
 
     profile_saved = None
@@ -225,6 +229,9 @@ def intake_turn(session: Session, session_id: str, text: str) -> dict:
             messages=api_messages,
             tools=[PROFILE_TOOL],
         )
+        from .client import record_usage
+
+        record_usage(settings.model_intake, response.usage)
         if response.stop_reason != "tool_use":
             break
         api_messages.append({"role": "assistant", "content": response.content})
@@ -232,7 +239,7 @@ def intake_turn(session: Session, session_id: str, text: str) -> dict:
         for block in response.content:
             if block.type == "tool_use":
                 try:
-                    profile_saved, created = _apply_profile(session, session_id, block.input)
+                    profile_saved, created = _apply_profile(session, session_id, block.input, user)
                     result = (
                         f"Profile {'created' if created else 'updated'} (id={profile_saved.id}, "
                         f"criteria v{profile_saved.criteria_version}). Scoring has started."
@@ -255,6 +262,7 @@ def intake_turn(session: Session, session_id: str, text: str) -> dict:
         session_id=session_id,
         role="assistant",
         content=reply,
+        user_id=user.id,
         profile_id=profile_saved.id if profile_saved else (
             history[-1].profile_id if history and history[-1].profile_id else None
         ),

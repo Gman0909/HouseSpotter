@@ -71,7 +71,7 @@ def _beds_bonus_check(prop: Property, listing: Listing, profile: SearchProfile):
 def _milestone_access_check(prop: Property, listing: Listing, profile: SearchProfile):
     from ..research.travel import access_score_single
 
-    score, avg_car = access_score_single(prop.id)
+    score, avg_car = access_score_single(prop.id, profile.user_id)
     if score is None:
         return 0.5, "no milestones set"
     return score / 100, f"~{round(avg_car)} min drive to your places"

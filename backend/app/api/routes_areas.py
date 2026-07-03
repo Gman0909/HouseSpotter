@@ -3,9 +3,19 @@ from sqlmodel import Session, select
 
 from ..auth import require_user
 from ..db import get_session
-from ..models import AreaResult, AreaSearch, MatchScore, Meta, Property, SearchProfile
+from ..models import AreaResult, AreaSearch, MatchScore, Meta, Property, SearchProfile, User
 
-router = APIRouter(prefix="/api/areas", tags=["areas"], dependencies=[Depends(require_user)])
+router = APIRouter(prefix="/api/areas", tags=["areas"])
+
+
+def _own_search(session: Session, search_id: int, user: User) -> AreaSearch:
+    search = session.get(AreaSearch, search_id)
+    if not search:
+        raise HTTPException(404)
+    profile = session.get(SearchProfile, search.profile_id)
+    if not profile or profile.user_id != user.id:
+        raise HTTPException(404)
+    return search
 
 MILES_TO_KM = 1.60934
 
@@ -24,7 +34,10 @@ def _search_payload(search: AreaSearch, session: Session) -> dict:
 
 
 @router.get("/searches")
-def list_searches(profile_id: int, session: Session = Depends(get_session)):
+def list_searches(profile_id: int, session: Session = Depends(get_session), user: User = Depends(require_user)):
+    profile = session.get(SearchProfile, profile_id)
+    if not profile or profile.user_id != user.id:
+        raise HTTPException(404)
     from ..research.engine import ensure_profile_search
 
     ensure_profile_search(profile_id)
@@ -37,13 +50,14 @@ def list_searches(profile_id: int, session: Session = Depends(get_session)):
 
 
 @router.post("/searches")
-def create_search(body: dict, background: BackgroundTasks, session: Session = Depends(get_session)):
+def create_search(body: dict, background: BackgroundTasks, session: Session = Depends(get_session), user: User = Depends(require_user)):
     """Create (or reuse) a custom saved search and start running it."""
     profile_id = body.get("profile_id")
     location = (body.get("location") or "").strip()
     if not profile_id or not location:
         raise HTTPException(422, "profile_id and location required")
-    if not session.get(SearchProfile, profile_id):
+    owner_check = session.get(SearchProfile, profile_id)
+    if not owner_check or owner_check.user_id != user.id:
         raise HTTPException(404, "profile not found")
     radius_km = round(min(40.0, float(body.get("radius_miles") or 15)) * MILES_TO_KM, 1)
 
@@ -95,10 +109,8 @@ def create_search(body: dict, background: BackgroundTasks, session: Session = De
 
 
 @router.post("/searches/{search_id}/run")
-def rerun_search(search_id: int, background: BackgroundTasks, session: Session = Depends(get_session)):
-    search = session.get(AreaSearch, search_id)
-    if not search:
-        raise HTTPException(404)
+def rerun_search(search_id: int, background: BackgroundTasks, session: Session = Depends(get_session), user: User = Depends(require_user)):
+    search = _own_search(session, search_id, user)
     from ..models import utcnow
     from ..research.engine import ensure_profile_search, get_status, run_area_search, set_status
 
@@ -116,10 +128,8 @@ def rerun_search(search_id: int, background: BackgroundTasks, session: Session =
 
 
 @router.delete("/searches/{search_id}")
-def delete_search(search_id: int, session: Session = Depends(get_session)):
-    search = session.get(AreaSearch, search_id)
-    if not search:
-        raise HTTPException(404)
+def delete_search(search_id: int, session: Session = Depends(get_session), user: User = Depends(require_user)):
+    search = _own_search(session, search_id, user)
     if search.source == "profile":
         raise HTTPException(400, "The profile-linked search can't be deleted — it follows the profile")
     for result in session.exec(
@@ -135,17 +145,16 @@ def delete_search(search_id: int, session: Session = Depends(get_session)):
 
 
 @router.get("/status")
-def research_status(search_id: int):
+def research_status(search_id: int, session: Session = Depends(get_session), user: User = Depends(require_user)):
     from ..research.engine import get_status
 
+    _own_search(session, search_id, user)
     return get_status(search_id)
 
 
 @router.get("")
-def list_areas(search_id: int, session: Session = Depends(get_session)):
-    search = session.get(AreaSearch, search_id)
-    if not search:
-        raise HTTPException(404)
+def list_areas(search_id: int, session: Session = Depends(get_session), user: User = Depends(require_user)):
+    search = _own_search(session, search_id, user)
     areas = session.exec(
         select(AreaResult).where(AreaResult.area_search_id == search_id)
     ).all()

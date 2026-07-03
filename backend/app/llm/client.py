@@ -38,6 +38,29 @@ def make_cache_key(*parts: str) -> str:
     return hashlib.sha256("||".join(parts).encode()).hexdigest()
 
 
+def record_usage(model: str, usage) -> None:
+    """Aggregate token spend per (month, model) — powers the budget indicator."""
+    from datetime import date
+
+    from ..models import TokenUsage
+
+    try:
+        month = date.today().strftime("%Y-%m")
+        with Session(engine) as session:
+            from sqlmodel import select
+
+            row = session.exec(
+                select(TokenUsage).where(TokenUsage.month == month, TokenUsage.model == model)
+            ).first() or TokenUsage(month=month, model=model)
+            row.input_tokens += getattr(usage, "input_tokens", 0) or 0
+            row.output_tokens += getattr(usage, "output_tokens", 0) or 0
+            row.calls += 1
+            session.add(row)
+            session.commit()
+    except Exception:
+        log.debug("Failed to record token usage", exc_info=True)
+
+
 def cached_json_call(
     cache_key: str,
     *,
@@ -66,6 +89,7 @@ def cached_json_call(
         messages=[{"role": "user", "content": user_content}],
         output_config={"format": {"type": "json_schema", "schema": schema}},
     )
+    record_usage(model, response.usage)
     if response.stop_reason == "refusal":
         log.warning("LLM refused request (cache_key=%s)", cache_key[:12])
         return None

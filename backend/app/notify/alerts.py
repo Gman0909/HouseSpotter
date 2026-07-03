@@ -8,7 +8,7 @@ from sqlmodel import Session, select
 
 from ..db import session_scope
 from ..models import (
-    Listing, ListItem, MatchScore, Notification, Property, SearchProfile,
+    Listing, ListItem, MatchScore, Notification, Property, SavedList, SearchProfile, User,
 )
 from .channels import send_email, send_telegram
 
@@ -96,6 +96,7 @@ def _alerts_for_profile(profile_id: int) -> None:
         profile = session.get(SearchProfile, profile_id)
         if not profile or _in_quiet_hours(profile):
             return
+        owner = session.get(User, profile.user_id) if profile.user_id else None
         channels = profile.alert_channels or []
 
         for channel in channels:
@@ -103,18 +104,20 @@ def _alerts_for_profile(profile_id: int) -> None:
             if not pending:
                 continue
             if profile.alert_digest:
-                ok = _send_digest(channel, profile, pending)
+                ok = _send_digest(channel, profile, pending, owner)
                 if ok:
                     for prop, _, _ in pending:
                         _record(session, prop.id, profile.id, channel, "new_match")
             else:
                 for prop, listing, match in pending:
-                    ok = _send_single(channel, profile, prop, listing, match)
+                    ok = _send_single(channel, profile, prop, listing, match, owner)
                     if ok:
                         _record(session, prop.id, profile.id, channel, "new_match")
 
 
-def _send_single(channel: str, profile: SearchProfile, prop: Property, listing: Listing, match: MatchScore) -> bool:
+def _send_single(channel: str, profile: SearchProfile, prop: Property, listing: Listing, match: MatchScore, owner: User | None = None) -> bool:
+    chat_id = owner.telegram_chat_id if owner and owner.telegram_chat_id else None
+    email_to = owner.email_to if owner and owner.email_to else None
     price = _fmt_price(listing.price, listing.mode)
     if channel == "telegram":
         caption = (
@@ -125,7 +128,7 @@ def _send_single(channel: str, profile: SearchProfile, prop: Property, listing: 
             + f"\n{match.rationale}\n{listing.url}"
         )
         photo = prop.image_urls[0] if prop.image_urls else None
-        return send_telegram(caption, photo_url=photo)
+        return send_telegram(caption, photo_url=photo, chat_id=chat_id)
     if channel == "email":
         img = f'<img src="{prop.image_urls[0]}" style="max-width:480px;border-radius:12px"><br>' if prop.image_urls else ""
         body = (
@@ -135,11 +138,13 @@ def _send_single(channel: str, profile: SearchProfile, prop: Property, listing: 
             f"<p>{match.rationale}</p>"
             f"<p><a href='{listing.url}'>View on {listing.portal}</a></p>"
         )
-        return send_email(f"New match ({round(match.score)}): {prop.address}", body)
+        return send_email(f"New match ({round(match.score)}): {prop.address}", body, to=email_to)
     return False
 
 
-def _send_digest(channel: str, profile: SearchProfile, pending: list) -> bool:
+def _send_digest(channel: str, profile: SearchProfile, pending: list, owner: User | None = None) -> bool:
+    chat_id = owner.telegram_chat_id if owner and owner.telegram_chat_id else None
+    email_to = owner.email_to if owner and owner.email_to else None
     lines_html, lines_tg = [], []
     for prop, listing, match in pending[:20]:
         price = _fmt_price(listing.price, listing.mode)
@@ -150,9 +155,9 @@ def _send_digest(channel: str, profile: SearchProfile, pending: list) -> bool:
         )
     title = f"{len(pending)} new matches for “{profile.name}”"
     if channel == "telegram":
-        return send_telegram(f"🏡 <b>{title}</b>\n\n" + "\n\n".join(lines_tg))
+        return send_telegram(f"🏡 <b>{title}</b>\n\n" + "\n\n".join(lines_tg), chat_id=chat_id)
     if channel == "email":
-        return send_email(title, f"<h2>{title}</h2><ul>{''.join(lines_html)}</ul>")
+        return send_email(title, f"<h2>{title}</h2><ul>{''.join(lines_html)}</ul>", to=email_to)
     return False
 
 
@@ -162,7 +167,16 @@ def _price_drops_for_profile(profile_id: int) -> None:
         profile = session.get(SearchProfile, profile_id)
         if not profile or _in_quiet_hours(profile):
             return
-        saved_ids = {i.property_id for i in session.exec(select(ListItem)).all()}
+        owner = session.get(User, profile.user_id) if profile.user_id else None
+        owner_list_ids = {
+            s.id for s in session.exec(
+                select(SavedList).where(SavedList.user_id == profile.user_id)
+            ).all()
+        }
+        saved_ids = {
+            i.property_id for i in session.exec(select(ListItem)).all()
+            if i.list_id in owner_list_ids
+        }
         if not saved_ids:
             return
         for property_id in saved_ids:
@@ -188,9 +202,12 @@ def _price_drops_for_profile(profile_id: int) -> None:
                     f"{_fmt_price(prev['price'], listing.mode)} → <b>{_fmt_price(last['price'], listing.mode)}</b>\n"
                     f"{listing.url}"
                 )
-                ok = send_telegram(msg) if channel == "telegram" else send_email(
+                ok = send_telegram(
+                    msg, chat_id=(owner.telegram_chat_id if owner and owner.telegram_chat_id else None)
+                ) if channel == "telegram" else send_email(
                     f"Price drop: {prop.address}",
                     f"<p>{msg.replace(chr(10), '<br>')}</p>",
+                    to=(owner.email_to if owner and owner.email_to else None),
                 )
                 if ok:
                     _record(session, property_id, profile.id, channel, kind)

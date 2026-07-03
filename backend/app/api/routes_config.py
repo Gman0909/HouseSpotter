@@ -5,16 +5,18 @@ import os
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from ..auth import require_user
+from ..auth import require_admin
 from ..config import PROJECT_DIR, settings
 
-router = APIRouter(prefix="/api/config", tags=["config"], dependencies=[Depends(require_user)])
+router = APIRouter(prefix="/api/config", tags=["config"], dependencies=[Depends(require_admin)])
 log = logging.getLogger("housespotter.config")
 
 # field on Settings → metadata. Order matters (UI renders in this order).
 SETTINGS_META: dict[str, dict] = {
     "anthropic_api_key": {"env": "HS_ANTHROPIC_API_KEY", "secret": True, "kind": "str", "section": "ai",
                           "label": "Anthropic API key"},
+    "ai_budget_usd": {"env": "HS_AI_BUDGET_USD", "secret": False, "kind": "float", "section": "ai",
+                      "label": "Monthly AI budget (USD)"},
     "telegram_bot_token": {"env": "HS_TELEGRAM_BOT_TOKEN", "secret": True, "kind": "str", "section": "telegram",
                            "label": "Bot token"},
     "telegram_chat_id": {"env": "HS_TELEGRAM_CHAT_ID", "secret": False, "kind": "str", "section": "telegram",
@@ -92,9 +94,9 @@ def update_config(body: dict):
         if meta["kind"] == "bool":
             coerced = raw if isinstance(raw, bool) else str(raw).lower() in ("1", "true", "yes", "on")
             env_updates[meta["env"]] = "true" if coerced else "false"
-        elif meta["kind"] == "int":
+        elif meta["kind"] in ("int", "float"):
             try:
-                coerced = int(raw)
+                coerced = int(raw) if meta["kind"] == "int" else float(raw)
             except (TypeError, ValueError):
                 raise HTTPException(422, f"{meta['label']} must be a number")
             env_updates[meta["env"]] = str(coerced)

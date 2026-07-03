@@ -14,11 +14,15 @@ class User(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     username: str = Field(unique=True, index=True)
     password_hash: str
+    is_admin: bool = False  # first user; can manage server settings + users
+    telegram_chat_id: str = ""  # personal alert targets
+    email_to: str = ""
     created_at: datetime = Field(default_factory=utcnow)
 
 
 class SearchProfile(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
     name: str
     mode: str = "buy"  # buy | rent
     active: bool = True
@@ -149,6 +153,7 @@ class AreaResult(SQLModel, table=True):
 
 class SavedList(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
     name: str
     created_at: datetime = Field(default_factory=utcnow)
 
@@ -201,6 +206,7 @@ class ChatMessage(SQLModel, table=True):
     """Intake chat history (single ongoing conversation per profile; profile_id nullable
     until the chat has created one)."""
     id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
     session_id: str = Field(index=True)
     profile_id: Optional[int] = Field(default=None, foreign_key="searchprofile.id")
     role: str  # user | assistant
@@ -208,9 +214,21 @@ class ChatMessage(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow)
 
 
+class TokenUsage(SQLModel, table=True):
+    """Aggregated AI token spend, one row per (month, model) — feeds the budget indicator."""
+    __table_args__ = (UniqueConstraint("month", "model", name="uq_token_usage"),)
+    id: Optional[int] = Field(default=None, primary_key=True)
+    month: str = Field(index=True)  # "2026-07"
+    model: str
+    input_tokens: int = 0
+    output_tokens: int = 0
+    calls: int = 0
+
+
 class Milestone(SQLModel, table=True):
     """A favourite place ('Office', 'Mum's house') used for travel times + access scores."""
     id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
     label: str
     place: str = ""  # what the user typed, for reference
     lat: float

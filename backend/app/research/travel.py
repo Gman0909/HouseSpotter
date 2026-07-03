@@ -71,12 +71,14 @@ def _ors_matrix(profile: str, sources: list[tuple[float, float]], destinations: 
         return None
 
 
-def compute_property_travel(property_id: int, force: bool = False) -> list[dict]:
-    """Travel rows for one property to every milestone, fetching+caching ORS results
-    for missing (property, milestone, mode) combos. Estimates fill any gaps."""
+def compute_property_travel(property_id: int, user_id: int, force: bool = False) -> list[dict]:
+    """Travel rows for one property to the user's milestones, fetching+caching ORS
+    results for missing (property, milestone, mode) combos. Estimates fill gaps."""
     with session_scope() as session:
         prop = session.get(Property, property_id)
-        milestones = session.exec(select(Milestone).order_by(Milestone.id)).all()
+        milestones = session.exec(
+            select(Milestone).where(Milestone.user_id == user_id).order_by(Milestone.id)
+        ).all()
         if not prop or not milestones:
             return []
         cached = {
@@ -170,10 +172,10 @@ def _milestone_baselines(session: Session) -> dict[int, float]:
     return baselines
 
 
-def access_scores(session: Session, property_ids: list[int]) -> dict[int, int | None]:
-    """Milestone Access Score per property (0-100), from cached car times where
-    available, crow-flies car estimates otherwise. None when no milestones exist."""
-    milestones = session.exec(select(Milestone)).all()
+def access_scores(session: Session, property_ids: list[int], user_id: int) -> dict[int, int | None]:
+    """Milestone Access Score per property (0-100) against the user's milestones,
+    from cached car times where available, estimates otherwise."""
+    milestones = session.exec(select(Milestone).where(Milestone.user_id == user_id)).all()
     if not milestones:
         return {pid: None for pid in property_ids}
     rows = session.exec(
@@ -202,10 +204,10 @@ def access_scores(session: Session, property_ids: list[int]) -> dict[int, int | 
     return scores
 
 
-def access_score_single(property_id: int) -> tuple[int | None, float | None]:
+def access_score_single(property_id: int, user_id: int | None) -> tuple[int | None, float | None]:
     """(score, weighted avg car minutes) for one property — used by match scoring."""
     with Session(engine) as session:
-        milestones = session.exec(select(Milestone)).all()
+        milestones = session.exec(select(Milestone).where(Milestone.user_id == user_id)).all()
         if not milestones:
             return None, None
         prop = session.get(Property, property_id)

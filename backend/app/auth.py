@@ -79,9 +79,84 @@ def logout(response: Response):
     return {"ok": True}
 
 
+def require_admin(user: User = Depends(require_user)) -> User:
+    if not user.is_admin:
+        raise HTTPException(403, "Admin only")
+    return user
+
+
 @router.get("/me")
 def me(user: User = Depends(require_user)):
-    return {"username": user.username}
+    return {
+        "username": user.username,
+        "is_admin": user.is_admin,
+        "telegram_chat_id": user.telegram_chat_id,
+        "email_to": user.email_to,
+    }
+
+
+@router.patch("/me/alerts")
+def update_my_alerts(body: dict, user: User = Depends(require_user), session: Session = Depends(get_session)):
+    """Per-user alert targets — where this user's Telegram/email alerts go."""
+    if "telegram_chat_id" in body:
+        user.telegram_chat_id = str(body["telegram_chat_id"] or "").strip()
+    if "email_to" in body:
+        user.email_to = str(body["email_to"] or "").strip()
+    session.add(user)
+    session.commit()
+    return {"ok": True, "telegram_chat_id": user.telegram_chat_id, "email_to": user.email_to}
+
+
+@router.post("/me/test-telegram")
+def test_my_telegram(user: User = Depends(require_user)):
+    if not user.telegram_chat_id:
+        raise HTTPException(422, "Set your chat ID first")
+    from .notify.channels import send_telegram
+
+    ok = send_telegram("✅ HouseSpotter: your personal Telegram alerts are working.", chat_id=user.telegram_chat_id)
+    if not ok:
+        raise HTTPException(502, "Telegram rejected the message — check the chat ID (and that you've messaged the bot)")
+    return {"ok": True, "detail": "Test message sent"}
+
+
+# --- Admin: user management ---
+
+@router.get("/users")
+def list_users(session: Session = Depends(get_session), _admin: User = Depends(require_admin)):
+    return [
+        {"id": u.id, "username": u.username, "is_admin": u.is_admin, "created_at": u.created_at}
+        for u in session.exec(select(User).order_by(User.id)).all()
+    ]
+
+
+@router.post("/users")
+def create_user(body: dict, session: Session = Depends(get_session), _admin: User = Depends(require_admin)):
+    username = (body.get("username") or "").strip()
+    password = body.get("password") or ""
+    if not username or len(password) < 8:
+        raise HTTPException(422, "Username required; password must be at least 8 characters")
+    if session.exec(select(User).where(User.username == username)).first():
+        raise HTTPException(422, "Username already taken")
+    user = User(username=username, password_hash=hash_password(password))
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+    return {"id": user.id, "username": user.username, "is_admin": user.is_admin}
+
+
+@router.delete("/users/{user_id}")
+def delete_user(user_id: int, session: Session = Depends(get_session), admin: User = Depends(require_admin)):
+    if user_id == admin.id:
+        raise HTTPException(422, "You can't delete your own account")
+    target = session.get(User, user_id)
+    if not target:
+        raise HTTPException(404)
+    from .userdata import delete_user_data
+
+    delete_user_data(session, user_id)
+    session.delete(target)
+    session.commit()
+    return {"ok": True}
 
 
 class AccountBody(BaseModel):

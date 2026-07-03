@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     model_intake: str = "claude-opus-4-8"
     model_scoring: str = "claude-haiku-4-5-20251001"
     model_research: str = "claude-opus-4-8"
+    ai_budget_usd: float = 15.0  # monthly reference budget for the usage indicator
 
     # Telegram
     telegram_bot_token: str = ""
