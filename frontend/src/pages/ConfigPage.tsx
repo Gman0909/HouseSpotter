@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Bot, CheckCircle2, Info, KeyRound, LogOut, Mail, Radar, Route, Send, UserRound, XCircle,
@@ -128,6 +129,18 @@ export default function ConfigPage() {
     enabled: isAdmin,
   })
 
+  // Deep links like /config#my-alerts or /config#server-telegram scroll to the section
+  const location = useLocation()
+  useEffect(() => {
+    if (!location.hash || !me.data) return
+    const t = setTimeout(() => {
+      const target =
+        document.getElementById(location.hash.slice(1)) ?? document.getElementById('my-alerts')
+      target?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 250)
+    return () => clearTimeout(t)
+  }, [location.hash, me.data])
+
   return (
     <div className="mx-auto max-w-2xl space-y-5 p-4 md:p-6">
       <div>
@@ -180,7 +193,7 @@ function MyAlertsCard({ me }: { me: Me }) {
 
   const dirty = chatId.trim() !== me.telegram_chat_id || emailTo.trim() !== me.email_to
   return (
-    <div className="rounded-2xl border border-stone-200 bg-white p-5 dark:border-stone-800 dark:bg-stone-900">
+    <div id="my-alerts" className="scroll-mt-4 rounded-2xl border border-stone-200 bg-white p-5 dark:border-stone-800 dark:bg-stone-900">
       <h2 className="mb-1 flex items-center gap-2 font-semibold">
         <Send size={16} /> My alert targets
       </h2>
@@ -343,7 +356,7 @@ function ConfigSection({
   const needsRestart = items.some((i) => i.restart_required && i.key in draft)
 
   return (
-    <div className="rounded-2xl border border-stone-200 bg-white p-5 dark:border-stone-800 dark:bg-stone-900">
+    <div id={`server-${section.id}`} className="scroll-mt-4 rounded-2xl border border-stone-200 bg-white p-5 dark:border-stone-800 dark:bg-stone-900">
       <div className="mb-1 flex items-center justify-between gap-2">
         <h2 className="flex items-center gap-2 font-semibold">
           <Icon size={16} /> {section.title}

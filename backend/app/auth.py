@@ -92,6 +92,11 @@ def me(user: User = Depends(require_user)):
         "is_admin": user.is_admin,
         "telegram_chat_id": user.telegram_chat_id,
         "email_to": user.email_to,
+        # channel readiness: server half (admin-configured) + this user's target
+        "channels": {
+            "telegram": {"server": bool(settings.telegram_bot_token), "user": bool(user.telegram_chat_id)},
+            "email": {"server": bool(settings.smtp_host), "user": bool(user.email_to)},
+        },
     }
 
 

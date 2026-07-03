@@ -1,8 +1,19 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { History, ListChecks, RotateCcw, X } from 'lucide-react'
+import { History, ListChecks, RotateCcw, Settings2, X } from 'lucide-react'
 import { api } from '../lib/api'
 import type { Profile } from '../lib/types'
+
+interface ChannelReadiness {
+  server: boolean
+  user: boolean
+}
+interface MeInfo {
+  username: string
+  is_admin: boolean
+  channels: { telegram: ChannelReadiness; email: ChannelReadiness }
+}
 
 // Friendly labels for the structured criteria keys the agent uses
 const CRITERIA_LABELS: Record<string, string> = {
@@ -54,8 +65,14 @@ const RADIUS_MILES = [1, 3, 5, 10, 15, 20, 30]
 
 export default function SettingsPage() {
   const qc = useQueryClient()
+  const navigate = useNavigate()
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [saveError, setSaveError] = useState('')
+
+  const me = useQuery({
+    queryKey: ['me'],
+    queryFn: () => api.get<MeInfo>('/api/auth/me'),
+  })
 
   const profiles = useQuery({
     queryKey: ['profiles'],
@@ -258,25 +275,49 @@ export default function SettingsPage() {
           </Row>
           <Row label="Alert channels">
             <div className="flex gap-2">
-              {['telegram', 'email'].map((ch) => {
+              {(['telegram', 'email'] as const).map((ch) => {
                 const on = profile.alert_channels.includes(ch)
+                const readiness = me.data?.channels?.[ch]
+                const ready = !!(readiness?.server && readiness?.user)
+                // Where to send the user to fix it: their own target first, else the
+                // server-side section (admin); ConfigPage scrolls to the hash.
+                const fixHash = !readiness?.user ? 'my-alerts' : `server-${ch}`
+                const toggle = () =>
+                  save.mutate({
+                    alert_channels: on
+                      ? profile.alert_channels.filter((c) => c !== ch)
+                      : [...profile.alert_channels, ch],
+                  })
+                if (ready) {
+                  return (
+                    <button
+                      key={ch}
+                      onClick={toggle}
+                      className={`rounded-full px-3 py-1 text-sm font-medium capitalize ${
+                        on ? 'bg-brand-600 text-white' : 'bg-stone-100 text-stone-500 dark:bg-stone-800'
+                      }`}
+                    >
+                      {ch}
+                    </button>
+                  )
+                }
                 return (
                   <button
                     key={ch}
-                    onClick={() =>
-                      save.mutate({
-                        alert_channels: on
-                          ? profile.alert_channels.filter((c) => c !== ch)
-                          : [...profile.alert_channels, ch],
-                      })
-                    }
-                    className={`rounded-full px-3 py-1 text-sm font-medium capitalize ${
+                    onClick={() => (on ? toggle() : navigate(`/config#${fixHash}`))}
+                    title={
                       on
-                        ? 'bg-brand-600 text-white'
-                        : 'bg-stone-100 text-stone-500 dark:bg-stone-800'
+                        ? `${ch} isn't configured — alerts on this channel won't send. Click to disable it.`
+                        : `${ch} isn't set up yet — click to configure it in Settings`
+                    }
+                    className={`flex items-center gap-1 rounded-full border border-dashed px-3 py-1 text-sm font-medium capitalize ${
+                      on
+                        ? 'border-amber-400 bg-amber-50 text-amber-600 dark:bg-amber-950 dark:text-amber-400'
+                        : 'border-stone-300 bg-transparent text-stone-400 opacity-70 hover:opacity-100 dark:border-stone-600'
                     }`}
                   >
                     {ch}
+                    <Settings2 size={12} />
                   </button>
                 )
               })}
