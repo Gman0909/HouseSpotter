@@ -3,12 +3,12 @@ from sqlmodel import Session, select
 
 from ..auth import require_user
 from ..db import get_session
-from ..models import Listing, MatchScore, Property, SearchProfile, User
+from ..models import Listing, MatchScore, Property, PropertyView, SearchProfile, User
 
 router = APIRouter(prefix="/api/properties", tags=["properties"])
 
 
-def _card(prop: Property, listing: Listing | None, match: MatchScore | None, access: dict | None = None) -> dict:
+def _card(prop: Property, listing: Listing | None, match: MatchScore | None, access: dict | None = None, viewed: bool = False) -> dict:
     return {
         "id": prop.id,
         "address": prop.address,
@@ -35,6 +35,7 @@ def _card(prop: Property, listing: Listing | None, match: MatchScore | None, acc
         "access_score": access["typical"] if access else None,
         "access_peak": access["peak"] if access else None,
         "access_offpeak": access["offpeak"] if access else None,
+        "viewed": viewed,
     }
 
 
@@ -94,7 +95,11 @@ def list_properties(
         visible.append((prop, listing, match))
 
     access = access_scores(session, [p.id for p, _, _ in visible], user.id)
-    cards = [_card(p, l, m, access.get(p.id)) for p, l, m in visible]
+    viewed_ids = {
+        v.property_id
+        for v in session.exec(select(PropertyView).where(PropertyView.user_id == user.id)).all()
+    }
+    cards = [_card(p, l, m, access.get(p.id), p.id in viewed_ids) for p, l, m in visible]
 
     key = {
         "score": lambda c: -(c["score"] or 0),
@@ -109,9 +114,20 @@ def list_properties(
 
 @router.get("/{property_id}")
 def get_property(property_id: int, profile_id: int | None = None, session: Session = Depends(get_session), user: User = Depends(require_user)):
-    prop = session.get(Property, property_id)
-    if not prop:
+    if not session.get(Property, property_id):
         raise HTTPException(404)
+    # Opening a property clears its per-user "New" badge. Recorded (and committed)
+    # BEFORE loading the response objects — commit expires loaded ORM instances,
+    # which otherwise serialize with missing fields.
+    already = session.exec(
+        select(PropertyView).where(
+            PropertyView.user_id == user.id, PropertyView.property_id == property_id
+        )
+    ).first()
+    if not already:
+        session.add(PropertyView(user_id=user.id, property_id=property_id))
+        session.commit()
+    prop = session.get(Property, property_id)
     listings = session.exec(select(Listing).where(Listing.property_id == property_id)).all()
     match = None
     if profile_id:

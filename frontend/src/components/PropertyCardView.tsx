@@ -14,8 +14,8 @@ function isNew(firstSeen: string | null): boolean {
   return Date.now() - new Date(firstSeen).getTime() < 48 * 3600 * 1000
 }
 
-function hasPriceDrop(history: { price: number }[]): boolean {
-  if (history.length < 2) return false
+function hasPriceDrop(history: { price: number }[] | null | undefined): boolean {
+  if (!history || history.length < 2) return false
   return history[history.length - 1].price < history[history.length - 2].price
 }
 
@@ -45,7 +45,7 @@ export default function PropertyCardView({
           <div className="flex h-full items-center justify-center text-stone-400">No photo</div>
         )}
         <div className="absolute left-2 top-2 flex gap-1.5">
-          {isNew(card.first_seen) && (
+          {isNew(card.first_seen) && !card.viewed && (
             <span className="flex items-center gap-1 rounded-full bg-brand-600 px-2 py-0.5 text-[11px] font-semibold text-white shadow">
               <Sparkles size={11} /> New
             </span>

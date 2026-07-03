@@ -1,5 +1,6 @@
+import { useEffect } from 'react'
 import { useParams, useSearchParams, Link } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { MapContainer, TileLayer, CircleMarker } from 'react-leaflet'
 import { ArrowLeft, Check, ExternalLink, MapPin } from 'lucide-react'
 import { api } from '../lib/api'
@@ -14,6 +15,7 @@ export default function PropertyPage() {
   const [params] = useSearchParams()
   const profileId = params.get('profile')
 
+  const qc = useQueryClient()
   const detail = useQuery({
     queryKey: ['property', id, profileId],
     queryFn: () =>
@@ -21,6 +23,12 @@ export default function PropertyPage() {
         `/api/properties/${id}${profileId ? `?profile_id=${profileId}` : ''}`,
       ),
   })
+
+  // Viewing marks the property as seen server-side — refresh the cached feed so
+  // the "New" badge is gone when the user navigates back
+  useEffect(() => {
+    if (detail.data) qc.invalidateQueries({ queryKey: ['feed'] })
+  }, [detail.data, qc])
 
   if (detail.isLoading) return <div className="p-6 text-sm text-stone-500">Loading…</div>
   if (!detail.data) return <div className="p-6 text-sm text-stone-500">Not found.</div>
@@ -42,7 +50,7 @@ export default function PropertyPage() {
         <ArrowLeft size={16} /> Back to homes
       </Link>
 
-      {property.image_urls.length > 0 && (
+      {(property.image_urls ?? []).length > 0 && (
         <div className="mb-5 grid grid-cols-2 gap-2 md:grid-cols-3">
           {property.image_urls.slice(0, 6).map((url, i) => (
             <img
@@ -88,7 +96,7 @@ export default function PropertyPage() {
 
       <TravelPanel propertyId={property.id} propertyLat={property.lat} propertyLng={property.lng} />
 
-      {match && match.breakdown.length > 0 && (
+      {match && (match.breakdown ?? []).length > 0 && (
         <section className="mt-6 rounded-2xl border border-stone-200 bg-white p-5 dark:border-stone-800 dark:bg-stone-900">
           <h2 className="mb-1 font-semibold">Why this scores {Math.round(match.score)}</h2>
           {match.rationale && <p className="mb-3 text-sm text-stone-600 dark:text-stone-400">{match.rationale}</p>}
@@ -182,7 +190,7 @@ export default function PropertyPage() {
         )}
       </section>
 
-      {property.features.length > 0 && (
+      {(property.features ?? []).length > 0 && (
         <section className="mt-6 rounded-2xl border border-stone-200 bg-white p-5 dark:border-stone-800 dark:bg-stone-900">
           <h2 className="mb-2 font-semibold">Features</h2>
           <ul className="grid grid-cols-1 gap-1.5 text-sm text-stone-700 sm:grid-cols-2 dark:text-stone-300">
@@ -196,7 +204,7 @@ export default function PropertyPage() {
         </section>
       )}
 
-      {live && live.price_history.length > 1 && (
+      {live && (live.price_history ?? []).length > 1 && (
         <section className="mt-6 rounded-2xl border border-stone-200 bg-white p-5 dark:border-stone-800 dark:bg-stone-900">
           <h2 className="mb-2 font-semibold">Price history</h2>
           <ul className="space-y-1 text-sm">

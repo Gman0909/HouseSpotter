@@ -214,6 +214,15 @@ class ChatMessage(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow)
 
 
+class PropertyView(SQLModel, table=True):
+    """Who has opened which property — clears the per-user 'New' badge."""
+    __table_args__ = (UniqueConstraint("user_id", "property_id", name="uq_property_view"),)
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", index=True)
+    property_id: int = Field(foreign_key="property.id", index=True)
+    viewed_at: datetime = Field(default_factory=utcnow)
+
+
 class TokenUsage(SQLModel, table=True):
     """Aggregated AI token spend, one row per (month, model) — feeds the budget indicator."""
     __table_args__ = (UniqueConstraint("month", "model", name="uq_token_usage"),)

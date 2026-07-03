@@ -49,6 +49,7 @@ export interface PropertyCard {
   access_score: number | null
   access_peak: number | null
   access_offpeak: number | null
+  viewed: boolean
 }
 
 export interface MilestoneInfo {

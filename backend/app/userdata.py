@@ -7,7 +7,8 @@ from sqlmodel import Session, select
 
 from .models import (
     AreaResult, AreaSearch, ChatMessage, ListItem, MatchScore, Meta, Milestone,
-    Notification, ProfileSnapshot, SavedList, ScrapeRun, SearchProfile, TravelTime,
+    Notification, ProfileSnapshot, PropertyView, SavedList, ScrapeRun, SearchProfile,
+    TravelTime,
 )
 
 log = logging.getLogger("housespotter.userdata")
@@ -39,5 +40,6 @@ def delete_user_data(session: Session, user_id: int) -> None:
         session.exec(sa_delete(TravelTime).where(TravelTime.milestone_id == milestone.id))
         session.delete(milestone)
     session.exec(sa_delete(ChatMessage).where(ChatMessage.user_id == user_id))
+    session.exec(sa_delete(PropertyView).where(PropertyView.user_id == user_id))
     session.commit()
     log.info("Deleted all data for user %s", user_id)
