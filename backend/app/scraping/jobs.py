@@ -226,9 +226,24 @@ class _ProfileView:
 
 def _notify_block(portal: str, detail: str) -> None:
     try:
+        from sqlmodel import Session, select
+
+        from ..db import engine
+        from ..models import User
         from ..notify.channels import send_telegram
 
-        send_telegram(f"⚠️ HouseSpotter: {portal} appears to be blocking requests; paused {PAUSE_HOURS}h.\n{detail}")
+        # System notice → every admin with a chat ID
+        with Session(engine) as s:
+            chat_ids = [
+                u.telegram_chat_id
+                for u in s.exec(select(User).where(User.is_admin == True)).all()  # noqa: E712
+                if u.telegram_chat_id
+            ]
+        for chat_id in chat_ids:
+            send_telegram(
+                f"⚠️ HouseSpotter: {portal} appears to be blocking requests; paused {PAUSE_HOURS}h.\n{detail}",
+                chat_id=chat_id,
+            )
     except Exception:
         log.debug("Could not send block notification", exc_info=True)
 

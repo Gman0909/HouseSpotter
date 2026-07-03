@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from ..auth import require_admin
 from ..config import PROJECT_DIR, settings
+from ..models import User
 
 router = APIRouter(prefix="/api/config", tags=["config"], dependencies=[Depends(require_admin)])
 log = logging.getLogger("housespotter.config")
@@ -19,14 +20,11 @@ SETTINGS_META: dict[str, dict] = {
                       "label": "Monthly AI budget (USD)"},
     "telegram_bot_token": {"env": "HS_TELEGRAM_BOT_TOKEN", "secret": True, "kind": "str", "section": "telegram",
                            "label": "Bot token"},
-    "telegram_chat_id": {"env": "HS_TELEGRAM_CHAT_ID", "secret": False, "kind": "str", "section": "telegram",
-                         "label": "Chat ID"},
     "smtp_host": {"env": "HS_SMTP_HOST", "secret": False, "kind": "str", "section": "email", "label": "SMTP host"},
     "smtp_port": {"env": "HS_SMTP_PORT", "secret": False, "kind": "int", "section": "email", "label": "SMTP port"},
     "smtp_user": {"env": "HS_SMTP_USER", "secret": False, "kind": "str", "section": "email", "label": "SMTP username"},
     "smtp_password": {"env": "HS_SMTP_PASSWORD", "secret": True, "kind": "str", "section": "email", "label": "SMTP password"},
     "smtp_from": {"env": "HS_SMTP_FROM", "secret": False, "kind": "str", "section": "email", "label": "From address"},
-    "smtp_to": {"env": "HS_SMTP_TO", "secret": False, "kind": "str", "section": "email", "label": "To address"},
     "ors_api_key": {"env": "HS_ORS_API_KEY", "secret": True, "kind": "str", "section": "routing",
                     "label": "OpenRouteService key"},
     "scrape_enabled": {"env": "HS_SCRAPE_ENABLED", "secret": False, "kind": "bool", "section": "scraping",
@@ -119,42 +117,24 @@ def update_config(body: dict):
 
 # --- Connection tests ---
 
-@router.post("/test/telegram")
-def test_telegram():
-    if not settings.telegram_bot_token or not settings.telegram_chat_id:
-        raise HTTPException(422, "Set the bot token and chat ID first")
-    from ..notify.channels import send_telegram
-
-    ok = send_telegram("✅ HouseSpotter test message — Telegram alerts are working.")
-    if not ok:
-        raise HTTPException(502, "Telegram rejected the message — check token and chat ID")
-    return {"ok": True, "detail": "Test message sent — check your Telegram"}
-
-
-@router.post("/telegram-detect-chat")
-def telegram_detect_chat():
-    """Read the chat ID from the bot's pending updates (user must message the bot first)."""
+@router.post("/test/telegram-bot")
+def test_telegram_bot():
+    """Validate the bot token itself (per-user delivery is tested from My alert targets)."""
     if not settings.telegram_bot_token:
         raise HTTPException(422, "Set the bot token first")
     import httpx
 
     try:
         resp = httpx.get(
-            f"https://api.telegram.org/bot{settings.telegram_bot_token}/getUpdates", timeout=15
+            f"https://api.telegram.org/bot{settings.telegram_bot_token}/getMe", timeout=15
         )
         data = resp.json()
     except Exception:
         raise HTTPException(502, "Couldn't reach Telegram")
     if not data.get("ok"):
-        raise HTTPException(502, f"Telegram error: {data.get('description', 'invalid token?')}")
-    for update in reversed(data.get("result", [])):
-        chat = (update.get("message") or {}).get("chat") or {}
-        if chat.get("id"):
-            chat_id = str(chat["id"])
-            settings.telegram_chat_id = chat_id
-            _write_env({"HS_TELEGRAM_CHAT_ID": chat_id})
-            return {"ok": True, "chat_id": chat_id, "name": chat.get("first_name") or chat.get("username")}
-    raise HTTPException(404, "No messages found — open your bot in Telegram and press Start, then try again")
+        raise HTTPException(502, f"Telegram rejected the token: {data.get('description', 'invalid')}")
+    username = data["result"].get("username", "?")
+    return {"ok": True, "detail": f"Token valid — bot @{username}. Users message it, then detect their chat ID in 'My alert targets'."}
 
 
 @router.post("/test/anthropic")
@@ -184,12 +164,15 @@ def test_ors():
 
 
 @router.post("/test/email")
-def test_email():
-    if not settings.smtp_host or not settings.smtp_to:
-        raise HTTPException(422, "Set at least SMTP host and To address first")
+def test_email(user: User = Depends(require_admin)):
+    """Sends to the requesting admin's own address — recipients are per-user."""
+    if not settings.smtp_host:
+        raise HTTPException(422, "Set the SMTP host first")
+    if not user.email_to:
+        raise HTTPException(422, "Set your email address in 'My alert targets' first — recipients are per-user")
     from ..notify.channels import send_email
 
-    ok = send_email("HouseSpotter test", "<p>✅ Email alerts are working.</p>")
+    ok = send_email("HouseSpotter test", "<p>✅ Email alerts are working.</p>", to=user.email_to)
     if not ok:
         raise HTTPException(502, "SMTP send failed — check host, port and credentials")
-    return {"ok": True, "detail": "Test email sent"}
+    return {"ok": True, "detail": f"Test email sent to {user.email_to}"}

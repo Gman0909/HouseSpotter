@@ -112,6 +112,38 @@ def update_my_alerts(body: dict, user: User = Depends(require_user), session: Se
     return {"ok": True, "telegram_chat_id": user.telegram_chat_id, "email_to": user.email_to}
 
 
+@router.post("/me/detect-telegram")
+def detect_my_telegram(user: User = Depends(require_user), session: Session = Depends(get_session)):
+    """Set this user's chat ID from the bot's latest updates. The user must have
+    messaged the bot (pressed Start) just before clicking — we take the newest chat."""
+    if not settings.telegram_bot_token:
+        raise HTTPException(422, "The admin needs to set up the Telegram bot first")
+    import httpx
+
+    try:
+        resp = httpx.get(
+            f"https://api.telegram.org/bot{settings.telegram_bot_token}/getUpdates", timeout=15
+        )
+        data = resp.json()
+    except Exception:
+        raise HTTPException(502, "Couldn't reach Telegram")
+    if not data.get("ok"):
+        raise HTTPException(502, f"Telegram error: {data.get('description', 'invalid token?')}")
+    for update in reversed(data.get("result", [])):
+        chat = (update.get("message") or {}).get("chat") or {}
+        if chat.get("id"):
+            user.telegram_chat_id = str(chat["id"])
+            session.add(user)
+            session.commit()
+            name = chat.get("first_name") or chat.get("username") or "?"
+            return {
+                "ok": True,
+                "chat_id": user.telegram_chat_id,
+                "detail": f"Found chat {user.telegram_chat_id} ({name}) — saved. If that's not you, message the bot and detect again.",
+            }
+    raise HTTPException(404, "No messages found — open the bot in Telegram, press Start (or send it any message), then try again")
+
+
 @router.post("/me/test-telegram")
 def test_my_telegram(user: User = Depends(require_user)):
     if not user.telegram_chat_id:

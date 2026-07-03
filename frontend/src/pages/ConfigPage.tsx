@@ -44,28 +44,24 @@ const SECTIONS: {
   },
   {
     id: 'telegram',
-    title: 'Telegram alerts',
+    title: 'Telegram bot (server)',
     icon: Send,
-    blurb: 'Instant phone notifications for new matches and price drops.',
+    blurb: 'One bot serves the whole house — each user picks their own chat in "My alert targets".',
     help: (
       <ol className="list-decimal space-y-1 pl-4">
         <li>In Telegram, open <b>t.me/BotFather</b> (blue verified tick) and press <b>Start</b>.</li>
         <li>Send <code>/newbot</code> — pick any display name, then a unique username ending in <code>bot</code>.</li>
         <li>Copy the token BotFather replies with (looks like <code>71234…:AAH…</code>) into the field here.</li>
-        <li>Open your new bot's chat and press <b>Start</b> — bots can't message you first.</li>
-        <li>Hit <b>Detect chat ID</b> below — it finds your chat automatically. Then <b>Send test</b>.</li>
+        <li>Each user then messages the bot and hits <b>Detect chat ID</b> in their own <b>My alert targets</b> card — that's where delivery is configured and tested.</li>
       </ol>
     ),
-    tests: [
-      { label: 'Detect chat ID', endpoint: '/api/config/telegram-detect-chat' },
-      { label: 'Send test', endpoint: '/api/config/test/telegram' },
-    ],
+    tests: [{ label: 'Test bot token', endpoint: '/api/config/test/telegram-bot' }],
   },
   {
     id: 'email',
-    title: 'Email alerts',
+    title: 'Email server (SMTP)',
     icon: Mail,
-    blurb: 'Alternative or additional alert channel; supports daily digests.',
+    blurb: 'Outgoing mail server for the whole house — each user sets their own address in "My alert targets".',
     help: (
       <div className="space-y-1.5">
         <p>Any SMTP account works. For Gmail:</p>
@@ -73,8 +69,9 @@ const SECTIONS: {
           <li>Host <code>smtp.gmail.com</code>, port <code>587</code>.</li>
           <li>Username = your Gmail address.</li>
           <li>Password: create an <b>App Password</b> at myaccount.google.com → Security → 2-Step Verification → App passwords (normal passwords won't work).</li>
-          <li>From = your Gmail address, To = wherever alerts should land.</li>
+          <li>From = your Gmail address. Recipients are per-user — everyone enters their own address in <b>My alert targets</b>.</li>
         </ol>
+        <p>The test button sends to <i>your</i> address from My alert targets.</p>
       </div>
     ),
     tests: [{ label: 'Send test email', endpoint: '/api/config/test/email' }],
@@ -114,6 +111,10 @@ interface Me {
   is_admin: boolean
   telegram_chat_id: string
   email_to: string
+  channels: {
+    telegram: { server: boolean; user: boolean }
+    email: { server: boolean; user: boolean }
+  }
 }
 
 export default function ConfigPage() {
@@ -190,43 +191,80 @@ function MyAlertsCard({ me }: { me: Me }) {
     onSuccess: (r) => setResult({ ok: true, text: r.detail }),
     onError: (err) => setResult({ ok: false, text: err instanceof ApiError ? err.message : 'Test failed' }),
   })
+  const detect = useMutation({
+    mutationFn: () => api.post<{ detail: string; chat_id: string }>('/api/auth/me/detect-telegram'),
+    onSuccess: (r) => {
+      setChatId(r.chat_id)
+      setResult({ ok: true, text: r.detail })
+      qc.invalidateQueries({ queryKey: ['me'] })
+    },
+    onError: (err) => setResult({ ok: false, text: err instanceof ApiError ? err.message : 'Detection failed' }),
+  })
 
+  const telegramServer = me.channels?.telegram?.server ?? false
+  const emailServer = me.channels?.email?.server ?? false
   const dirty = chatId.trim() !== me.telegram_chat_id || emailTo.trim() !== me.email_to
+
+  const secondaryBtn =
+    'rounded-lg border border-stone-300 px-3.5 py-1.5 text-sm font-semibold text-stone-600 hover:bg-stone-50 disabled:opacity-50 dark:border-stone-700 dark:text-stone-300 dark:hover:bg-stone-800'
+
   return (
     <div id="my-alerts" className="scroll-mt-4 rounded-2xl border border-stone-200 bg-white p-5 dark:border-stone-800 dark:bg-stone-900">
       <h2 className="mb-1 flex items-center gap-2 font-semibold">
         <Send size={16} /> My alert targets
       </h2>
       <p className="mb-3 text-xs text-stone-400">
-        Where <b>your</b> alerts go. Telegram: message the house bot first, then get your chat ID
-        from <b>t.me/userinfobot</b>. Each user has their own targets.
+        Where <b>your</b> alerts go — every user has their own. The admin sets up the shared bot
+        and email server{me.is_admin ? ' in the sections below' : ''}.
       </p>
       <div className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <span className="text-sm font-medium">Telegram chat ID</span>
-          <input className="input w-64" value={chatId} onChange={(e) => setChatId(e.target.value)} placeholder="e.g. 5098965168" />
+          {telegramServer ? (
+            <span className="flex items-center gap-2">
+              <input className="input w-44" value={chatId} onChange={(e) => setChatId(e.target.value)} placeholder="e.g. 5098965168" />
+              <button
+                onClick={() => detect.mutate()}
+                disabled={detect.isPending}
+                title="Message the house bot in Telegram (press Start), then click — your chat ID is filled in automatically"
+                className={secondaryBtn}
+              >
+                {detect.isPending ? '…' : 'Detect chat ID'}
+              </button>
+            </span>
+          ) : (
+            <span className="text-sm text-stone-400">
+              {me.is_admin ? 'Set up the Telegram bot below first.' : 'Not available — ask the admin to set up the Telegram bot.'}
+            </span>
+          )}
         </div>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <span className="text-sm font-medium">Email address</span>
-          <input className="input w-64" value={emailTo} onChange={(e) => setEmailTo(e.target.value)} placeholder="you@example.com" />
+          {emailServer ? (
+            <input className="input w-64" value={emailTo} onChange={(e) => setEmailTo(e.target.value)} placeholder="you@example.com" />
+          ) : (
+            <span className="text-sm text-stone-400">
+              {me.is_admin ? 'Set up the email server below first.' : 'Not available — ask the admin to set up the email server.'}
+            </span>
+          )}
         </div>
       </div>
-      <div className="mt-4 flex items-center gap-2">
-        <button
-          onClick={() => save.mutate()}
-          disabled={!dirty || save.isPending}
-          className="rounded-lg bg-brand-600 px-3.5 py-1.5 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-40"
-        >
-          Save
-        </button>
-        <button
-          onClick={() => test.mutate()}
-          disabled={test.isPending}
-          className="rounded-lg border border-stone-300 px-3.5 py-1.5 text-sm font-semibold text-stone-600 hover:bg-stone-50 disabled:opacity-50 dark:border-stone-700 dark:text-stone-300 dark:hover:bg-stone-800"
-        >
-          Send test
-        </button>
-      </div>
+      {(telegramServer || emailServer) && (
+        <div className="mt-4 flex items-center gap-2">
+          <button
+            onClick={() => save.mutate()}
+            disabled={!dirty || save.isPending}
+            className="rounded-lg bg-brand-600 px-3.5 py-1.5 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-40"
+          >
+            Save
+          </button>
+          {telegramServer && (
+            <button onClick={() => test.mutate()} disabled={test.isPending} className={secondaryBtn}>
+              Send test
+            </button>
+          )}
+        </div>
+      )}
       {result && (
         <p className={`mt-2.5 rounded-lg px-3 py-2 text-sm ${result.ok ? 'bg-brand-50 text-brand-700 dark:bg-brand-950 dark:text-brand-300' : 'bg-red-50 text-red-600 dark:bg-red-950 dark:text-red-300'}`}>
           {result.text}
