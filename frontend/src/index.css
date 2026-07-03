@@ -40,6 +40,17 @@ body {
   @apply rounded-lg border border-stone-300 bg-transparent px-3 py-1.5 text-sm outline-none focus:border-brand-500 dark:border-stone-700;
 }
 
+/* iOS (Safari and Firefox alike) auto-zooms the page when a focused form control's
+   font-size is under 16px — with the login field autofocused, the app loads zoomed in.
+   16px controls on small screens prevent the zoom without disabling pinch-zoom. */
+@media (max-width: 767px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
 /* Map hover cards: suppress Leaflet's default tooltip chrome so our card shows bare */
 .leaflet-tooltip.hs-hovercard {
   padding: 0;

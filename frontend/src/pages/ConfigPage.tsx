@@ -112,7 +112,7 @@ interface Me {
   telegram_chat_id: string
   email_to: string
   channels: {
-    telegram: { server: boolean; user: boolean }
+    telegram: { server: boolean; user: boolean; bot_username: string | null }
     email: { server: boolean; user: boolean }
   }
 }
@@ -203,6 +203,8 @@ function MyAlertsCard({ me }: { me: Me }) {
 
   const telegramServer = me.channels?.telegram?.server ?? false
   const emailServer = me.channels?.email?.server ?? false
+  const botUsername = me.channels?.telegram?.bot_username ?? null
+  const [showHelp, setShowHelp] = useState(false)
   const dirty = chatId.trim() !== me.telegram_chat_id || emailTo.trim() !== me.email_to
 
   const secondaryBtn =
@@ -210,13 +212,52 @@ function MyAlertsCard({ me }: { me: Me }) {
 
   return (
     <div id="my-alerts" className="scroll-mt-4 rounded-2xl border border-stone-200 bg-white p-5 dark:border-stone-800 dark:bg-stone-900">
-      <h2 className="mb-1 flex items-center gap-2 font-semibold">
-        <Send size={16} /> My alert targets
-      </h2>
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <h2 className="flex items-center gap-2 font-semibold">
+          <Send size={16} /> My alert targets
+        </h2>
+        <button
+          onClick={() => setShowHelp((v) => !v)}
+          title="How to set up your alerts"
+          className={`rounded-full p-1 transition ${showHelp ? 'bg-brand-100 text-brand-700 dark:bg-brand-900 dark:text-brand-300' : 'text-stone-400 hover:text-brand-600'}`}
+        >
+          <Info size={15} />
+        </button>
+      </div>
       <p className="mb-3 text-xs text-stone-400">
         Where <b>your</b> alerts go — every user has their own. The admin sets up the shared bot
         and email server{me.is_admin ? ' in the sections below' : ''}.
       </p>
+
+      {showHelp && (
+        <div className="mb-4 rounded-xl bg-stone-50 p-3.5 text-sm leading-relaxed text-stone-600 dark:bg-stone-800/60 dark:text-stone-300">
+          <p className="mb-1.5 font-semibold">Telegram (about a minute):</p>
+          <ol className="list-decimal space-y-1 pl-4">
+            <li>
+              Open the house bot in Telegram:{' '}
+              {botUsername ? (
+                <a href={`https://t.me/${botUsername}`} target="_blank" rel="noreferrer" className="font-semibold text-brand-600 underline dark:text-brand-400">
+                  @{botUsername}
+                </a>
+              ) : (
+                <span>ask the admin for the bot's name and search for it</span>
+              )}
+              .
+            </li>
+            <li>Press <b>Start</b> (or send it any message) — bots can't message you first.</li>
+            <li>Come straight back here and hit <b>Detect chat ID</b> — your chat is found and saved automatically.</li>
+            <li>Hit <b>Send test</b> — you should get a Telegram message within seconds.</li>
+          </ol>
+          <p className="mb-1.5 mt-3 font-semibold">Email:</p>
+          <p>
+            Just enter the address you want alerts sent to and hit Save
+            {emailServer ? '.' : ' — available once the admin has configured the email server.'}
+          </p>
+          <p className="mt-3 text-xs text-stone-400">
+            Alerts only ever cover <b>your own</b> search profiles, and only the ones marked Active.
+          </p>
+        </div>
+      )}
       <div className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <span className="text-sm font-medium">Telegram chat ID</span>

@@ -12,9 +12,10 @@ log = logging.getLogger("housespotter.notify")
 
 
 def send_telegram(text: str, photo_url: str | None = None, chat_id: str | None = None) -> bool:
-    chat_id = chat_id or settings.telegram_chat_id
+    # chat_id is required by design: recipients are per-user, and a global fallback
+    # would silently deliver one user's alerts to another. No target → no send.
     if not settings.telegram_bot_token or not chat_id:
-        log.debug("Telegram not configured; skipping")
+        log.debug("Telegram not configured or no chat_id; skipping")
         return False
     base = f"https://api.telegram.org/bot{settings.telegram_bot_token}"
     try:
@@ -50,9 +51,9 @@ def send_telegram(text: str, photo_url: str | None = None, chat_id: str | None =
 
 
 def send_email(subject: str, html_body: str, to: str | None = None) -> bool:
-    to = to or settings.smtp_to
+    # `to` is required by design — same per-user reasoning as send_telegram.
     if not settings.smtp_host or not to:
-        log.debug("SMTP not configured; skipping")
+        log.debug("SMTP not configured or no recipient; skipping")
         return False
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject

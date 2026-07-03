@@ -85,6 +85,26 @@ def require_admin(user: User = Depends(require_user)) -> User:
     return user
 
 
+_bot_username_cache: dict[str, str] = {}
+
+
+def _bot_username() -> str | None:
+    """The shared bot's @username (for setup instructions), cached per token."""
+    token = settings.telegram_bot_token
+    if not token:
+        return None
+    if token not in _bot_username_cache:
+        try:
+            import httpx
+
+            data = httpx.get(f"https://api.telegram.org/bot{token}/getMe", timeout=6).json()
+            if data.get("ok"):
+                _bot_username_cache[token] = data["result"].get("username", "")
+        except Exception:
+            return None  # transient — don't cache failures
+    return _bot_username_cache.get(token) or None
+
+
 @router.get("/me")
 def me(user: User = Depends(require_user)):
     return {
@@ -94,7 +114,11 @@ def me(user: User = Depends(require_user)):
         "email_to": user.email_to,
         # channel readiness: server half (admin-configured) + this user's target
         "channels": {
-            "telegram": {"server": bool(settings.telegram_bot_token), "user": bool(user.telegram_chat_id)},
+            "telegram": {
+                "server": bool(settings.telegram_bot_token),
+                "user": bool(user.telegram_chat_id),
+                "bot_username": _bot_username(),
+            },
             "email": {"server": bool(settings.smtp_host), "user": bool(user.email_to)},
         },
     }
