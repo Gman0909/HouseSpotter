@@ -230,10 +230,16 @@ def score_desires(prop: Property, listing: Listing, desires: list[str]) -> dict[
     )
     if not result:
         return {d: (0.5, "AI scoring unavailable") for d in desires}
+
+    def _norm(t: str) -> str:
+        return "".join(ch for ch in t.lower() if ch.isalnum() or ch == " ").strip()
+
     out: dict[str, tuple[float, str]] = {}
-    scored = {s["desire"]: s for s in result.get("scores", [])}
+    # Normalized matching: smaller models sometimes echo the desire with altered
+    # casing/punctuation, which must not drop the score
+    scored = {_norm(s.get("desire", "")): s for s in result.get("scores", [])}
     for d in desires:
-        s = scored.get(d)
+        s = scored.get(_norm(d))
         if s:
             out[d] = (max(0.0, min(1.0, float(s["satisfaction"]))), s["reason"])
         else:

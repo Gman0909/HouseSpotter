@@ -206,7 +206,7 @@ def _ollama_turn(system: str, api_messages: list[dict], session: Session, sessio
     messages = [{"role": "system", "content": system}] + api_messages
     profile_saved = None
     reply = ""
-    for _ in range(3):
+    for attempt in range(4):
         raw = ollama_chat(messages, tools=tools, max_tokens=1500)
         if raw is None:
             raise HTTPException(502, "The local AI server didn't respond — check the Ollama settings.")
@@ -214,7 +214,12 @@ def _ollama_turn(system: str, api_messages: list[dict], session: Session, sessio
         reply = msg.get("content") or ""
         tool_calls = msg.get("tool_calls") or []
         if not tool_calls:
-            break
+            if reply:
+                break
+            # Small local models occasionally return nothing at all — resample
+            # rather than pretending the (empty) turn succeeded
+            log.info("Ollama returned empty response (attempt %d); retrying", attempt + 1)
+            continue
         messages.append(msg)
         for call in tool_calls:
             args = (call.get("function") or {}).get("arguments") or {}
@@ -316,7 +321,12 @@ def intake_turn(session: Session, session_id: str, text: str, user: User) -> dic
 
         reply = next((b.text for b in response.content if b.type == "text"), "")
     if not reply:
-        reply = "Done — your search is set up. Anything you'd like to adjust?"
+        # Never claim success unless a profile actually saved
+        reply = (
+            "Done — your search is set up. Anything you'd like to adjust?"
+            if profile_saved
+            else "Sorry, I didn't manage to act on that — could you rephrase or try again?"
+        )
 
     assistant_msg = ChatMessage(
         session_id=session_id,
