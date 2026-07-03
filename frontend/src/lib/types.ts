@@ -52,6 +52,8 @@ export interface PropertyCard {
   access_peak: number | null
   access_offpeak: number | null
   viewed: boolean
+  station_name: string | null
+  station_walk_minutes: number | null
 }
 
 export interface MilestoneInfo {
@@ -80,6 +82,7 @@ export interface TravelRow {
 
 export interface TravelInfo {
   milestones: TravelRow[]
+  station: { name: string; km: number | null; walk_minutes: number | null; provider: string } | null
   access_score: number | null
   access_peak: number | null
   access_offpeak: number | null

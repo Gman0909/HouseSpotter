@@ -38,6 +38,7 @@ const CRITERIA_LABELS: Record<string, string> = {
   new_build: 'New build',
   ensuite: 'En-suite',
   epc_c: 'EPC C or better',
+  near_station: 'Near a train station',
   value: 'Price value',
   extra_beds: 'Extra bedrooms',
   milestone_access: 'Milestone access',

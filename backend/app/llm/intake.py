@@ -42,10 +42,12 @@ Do not reuse an existing profile's name for it.
 If it's ambiguous whether the user wants to modify or add, ask before calling the tool.
 
 Structured must_have/nice_to_have keys you may use: parking, garden, garage, chain_free, \
-new_build, ensuite, epc_c, value, extra_beds, milestone_access (how quickly the property \
-reaches the user's saved Milestone places — use when they say being near their favourite \
-places matters). Anything else the user wants goes into nice_to_haves as kind="desire" \
-free text. Weights: 1 = mild preference, 2 = matters, \
+new_build, ensuite, epc_c, value, extra_beds, near_station (close to train links generally — \
+use when they mention trains, stations or commuting by rail; NEVER tied to a named station), \
+milestone_access (how quickly the property reaches the user's saved Milestone places — use \
+when they say being near their favourite places matters). If the user names a specific \
+station, suggest adding it as a Milestone in Settings instead. Anything else the user wants \
+goes into nice_to_haves as kind="desire" free text. Weights: 1 = mild preference, 2 = matters, \
 3 = really matters. Radius defaults: town 5 km, village 3 km, city area 8 km."""
 
 PROFILE_TOOL = {

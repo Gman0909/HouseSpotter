@@ -68,6 +68,20 @@ def _beds_bonus_check(prop: Property, listing: Listing, profile: SearchProfile):
     return (min(1.0, 0.5 + extra * 0.5), f"{prop.beds} beds")
 
 
+def _near_station_check(prop: Property, listing: Listing, profile: SearchProfile):
+    """'Close to train links' — deliberately generic (never a named station).
+    Absolute walk-time curve: ≤8 min → 1.0, ≥35 min → 0.0."""
+    from ..research.stations import station_info
+
+    info = station_info(prop)
+    if info is None or info.get("walk_minutes") is None:
+        return 0.0, "no station in range"
+    minutes = info["walk_minutes"]
+    sat = max(0.0, min(1.0, (35 - minutes) / 27))
+    approx = "~" if info.get("provider") == "estimate" else ""
+    return sat, f"{info['name']} {approx}{round(minutes)} min walk"
+
+
 def _milestone_access_check(prop: Property, listing: Listing, profile: SearchProfile):
     from ..research.travel import access_score_single
 
@@ -95,6 +109,7 @@ STRUCTURED_CHECKS = {
     "garage": (_keyword_check(["garage"]), "Garage"),
     "ensuite": (_keyword_check(["ensuite", "en-suite", "en suite"]), "En-suite"),
     "epc_c": (_epc_check("C"), "EPC C or better"),
+    "near_station": (_near_station_check, "Near a train station"),
     "value": (_value_check, "Price value"),
     "extra_beds": (_beds_bonus_check, "Extra bedrooms"),
     "milestone_access": (_milestone_access_check, "Milestone access"),

@@ -217,6 +217,28 @@ class ChatMessage(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow)
 
 
+class TrainStation(SQLModel, table=True):
+    """GB heavy-rail stations (one country-wide OSM fetch, refreshed monthly)."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str
+    lat: float
+    lng: float
+    source: str = "osm"
+    fetched_at: datetime = Field(default_factory=utcnow)
+
+
+class PropertyStation(SQLModel, table=True):
+    """Cached walking time from a property to its nearest station."""
+    __table_args__ = (UniqueConstraint("property_id", "station_id", name="uq_property_station"),)
+    id: Optional[int] = Field(default=None, primary_key=True)
+    property_id: int = Field(foreign_key="property.id", index=True)
+    station_id: int = Field(foreign_key="trainstation.id", index=True)
+    walk_minutes: Optional[float] = None
+    km: Optional[float] = None
+    provider: str = "estimate"  # estimate | ors
+    computed_at: datetime = Field(default_factory=utcnow)
+
+
 class PropertyView(SQLModel, table=True):
     """Who has opened which property — clears the per-user 'New' badge."""
     __table_args__ = (UniqueConstraint("user_id", "property_id", name="uq_property_view"),)

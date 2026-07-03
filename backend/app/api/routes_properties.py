@@ -8,7 +8,7 @@ from ..models import Listing, MatchScore, Property, PropertyView, SearchProfile,
 router = APIRouter(prefix="/api/properties", tags=["properties"])
 
 
-def _card(prop: Property, listing: Listing | None, match: MatchScore | None, access: dict | None = None, viewed: bool = False) -> dict:
+def _card(prop: Property, listing: Listing | None, match: MatchScore | None, access: dict | None = None, viewed: bool = False, station: dict | None = None) -> dict:
     return {
         "id": prop.id,
         "address": prop.address,
@@ -36,6 +36,8 @@ def _card(prop: Property, listing: Listing | None, match: MatchScore | None, acc
         "access_peak": access["peak"] if access else None,
         "access_offpeak": access["offpeak"] if access else None,
         "viewed": viewed,
+        "station_name": station["name"] if station else None,
+        "station_walk_minutes": station["walk_minutes"] if station else None,
     }
 
 
@@ -99,7 +101,13 @@ def list_properties(
         v.property_id
         for v in session.exec(select(PropertyView).where(PropertyView.user_id == user.id)).all()
     }
-    cards = [_card(p, l, m, access.get(p.id), p.id in viewed_ids) for p, l, m in visible]
+    from ..research.stations import station_walk_map
+
+    stations = station_walk_map(session, [p.id for p, _, _ in visible])
+    cards = [
+        _card(p, l, m, access.get(p.id), p.id in viewed_ids, stations.get(p.id))
+        for p, l, m in visible
+    ]
 
     key = {
         "score": lambda c: -(c["score"] or 0),
@@ -156,8 +164,13 @@ def property_travel(property_id: int, force: bool = False, session: Session = De
 
     rows = compute_property_travel(property_id, user.id, force=force)
     score, avg_car = access_score_single(property_id, user.id)
+
+    from ..research.stations import compute_property_station
+
+    station = compute_property_station(property_id, force=force)
     return {
         "milestones": rows,
+        "station": station,
         "access_score": score["typical"] if score else None,
         "access_peak": score["peak"] if score else None,
         "access_offpeak": score["offpeak"] if score else None,

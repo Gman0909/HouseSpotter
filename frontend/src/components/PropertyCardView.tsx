@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { BedDouble, Bath, Heart, MapPin, Sparkles, TrendingDown, Zap } from 'lucide-react'
+import { BedDouble, Bath, Heart, MapPin, Sparkles, TrainFront, TrendingDown, Zap } from 'lucide-react'
 import type { PropertyCard } from '../lib/types'
 import ScoreRing from './ScoreRing'
 
@@ -91,6 +91,14 @@ export default function PropertyCardView({
           )}
           {card.property_type && <span className="capitalize">{card.property_type}</span>}
           {card.epc && <span>EPC {card.epc}</span>}
+          {card.station_walk_minutes !== null && card.station_walk_minutes <= 25 && (
+            <span
+              className="flex items-center gap-0.5 font-medium text-stone-500 dark:text-stone-400"
+              title={`${card.station_name} — about ${Math.round(card.station_walk_minutes)} min walk`}
+            >
+              <TrainFront size={12} /> {Math.round(card.station_walk_minutes)}′
+            </span>
+          )}
           {card.access_score !== null && (
             <span
               className="ml-auto flex items-center gap-0.5 font-semibold text-brand-600 dark:text-brand-400"

@@ -287,9 +287,11 @@ def register_jobs(scheduler) -> None:
     )
 
     def travel_batch():
+        from ..research.stations import refresh_station_batch
         from ..research.travel import refresh_travel_batch
 
         refresh_travel_batch()
+        refresh_station_batch()
 
     scheduler.add_job(
         travel_batch,
@@ -298,4 +300,17 @@ def register_jobs(scheduler) -> None:
         max_instances=1,
         coalesce=True,
     )
-    log.info("Registered jobs: poll every 30min ± 10min; research weekly (Sun ~03:30); travel batch nightly (~04:15)")
+
+    def station_refresh():
+        from ..research.stations import refresh_stations
+
+        refresh_stations()
+
+    scheduler.add_job(
+        station_refresh,
+        CronTrigger(day=1, hour=2, minute=45, jitter=1200),
+        id="stations",
+        max_instances=1,
+        coalesce=True,
+    )
+    log.info("Registered jobs: poll every 30min ± 10min; research weekly (Sun ~03:30); travel batch nightly (~04:15); station table monthly")

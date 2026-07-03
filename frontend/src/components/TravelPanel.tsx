@@ -50,9 +50,9 @@ export default function TravelPanel({
       </section>
     )
   }
-  if (!travel.data || travel.data.milestones.length === 0) return null
+  if (!travel.data || (travel.data.milestones.length === 0 && !travel.data.station)) return null
 
-  const { milestones, access_score, access_peak, access_offpeak } = travel.data
+  const { milestones, station, access_score, access_peak, access_offpeak } = travel.data
   const anyEstimate = milestones.some((m) =>
     Object.values(m.modes).some((mode: TravelMode) => mode.provider === 'estimate'),
   )
@@ -99,6 +99,21 @@ export default function TravelPanel({
         </div>
       </div>
 
+      {station && (
+        <p className="mb-2.5 flex flex-wrap items-center gap-1.5 text-sm">
+          <TrainFront size={15} className="shrink-0 text-brand-600" />
+          <span className="font-medium">{station.name}</span>
+          <span className="text-stone-500">
+            {station.walk_minutes !== null
+              ? `— ${Math.round(station.walk_minutes)} min walk${station.provider === 'estimate' ? '*' : ''}${
+                  station.km != null ? ` · ${station.km.toFixed(1)} km` : ''
+                }`
+              : `— nearest station, ${station.km} km away`}
+          </span>
+        </p>
+      )}
+
+      {milestones.length > 0 && (
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -169,7 +184,8 @@ export default function TravelPanel({
           </tbody>
         </table>
       </div>
-      {anyEstimate && (
+      )}
+      {(anyEstimate || station?.provider === 'estimate') && (
         <p className="mt-2 text-[11px] text-stone-400">
           * distance-based estimate — real routed times appear once computed (nightly, or hit ↻).
         </p>
