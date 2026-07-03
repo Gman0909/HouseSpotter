@@ -10,3 +10,5 @@ frontend/dist/
 *.db-wal
 *.db-shm
 .claude/
+IMPLEMENTATION_PROMPT.md
+PLAN.md
