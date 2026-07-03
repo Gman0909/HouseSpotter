@@ -1,8 +1,27 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { History, RotateCcw } from 'lucide-react'
+import { History, ListChecks, RotateCcw, X } from 'lucide-react'
 import { api } from '../lib/api'
 import type { Profile } from '../lib/types'
+
+// Friendly labels for the structured criteria keys the agent uses
+const CRITERIA_LABELS: Record<string, string> = {
+  parking: 'Parking',
+  garden: 'Garden',
+  garage: 'Garage',
+  chain_free: 'Chain-free',
+  new_build: 'New build',
+  ensuite: 'En-suite',
+  epc_c: 'EPC C or better',
+  value: 'Price value',
+  extra_beds: 'Extra bedrooms',
+  milestone_access: 'Milestone access',
+}
+
+function criterionLabel(c: { key?: string; text?: string }): string {
+  if (c.text) return c.text
+  return CRITERIA_LABELS[c.key ?? ''] ?? c.key ?? '?'
+}
 
 interface Snapshot {
   id: number
@@ -47,7 +66,10 @@ export default function SettingsPage() {
   const save = useMutation({
     mutationFn: (patch: Partial<Profile>) => api.patch(`/api/profiles/${profile!.id}`, patch),
     onMutate: () => setSaveError(''),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['profiles'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['profiles'] })
+      qc.invalidateQueries({ queryKey: ['profile-history'] })
+    },
     onError: (err) => setSaveError(err instanceof Error ? err.message : 'Save failed'),
   })
   const createProfile = useMutation({
@@ -283,6 +305,104 @@ export default function SettingsPage() {
             >
               Delete profile
             </button>
+          </div>
+        </div>
+      )}
+
+      {profile && (
+        <div className="mt-5 rounded-2xl border border-stone-200 bg-white p-5 dark:border-stone-800 dark:bg-stone-900">
+          <h2 className="mb-1 flex items-center gap-2 font-semibold">
+            <ListChecks size={16} /> Requirements
+          </h2>
+          <p className="mb-3 text-xs text-stone-400">
+            Everything this search filters and scores on. Remove items directly — no need to ask
+            the agent. Changes re-score all properties; the History section below can undo.
+          </p>
+
+          <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-stone-400">
+            Must-haves <span className="normal-case">(hard filters)</span>
+          </h3>
+          <div className="mb-4 flex flex-wrap gap-1.5">
+            {Object.entries(profile.must_haves ?? {}).filter(([, v]) => v).map(([key]) => (
+              <span
+                key={key}
+                className="flex items-center gap-1 rounded-full bg-brand-100 py-1 pl-3 pr-1.5 text-xs font-semibold text-brand-700 dark:bg-brand-900 dark:text-brand-300"
+              >
+                {CRITERIA_LABELS[key] ?? key}
+                <button
+                  onClick={() => {
+                    const next = { ...profile.must_haves }
+                    delete next[key]
+                    save.mutate({ must_haves: next })
+                  }}
+                  title={`Remove must-have: ${CRITERIA_LABELS[key] ?? key}`}
+                  className="rounded-full p-0.5 text-brand-500 hover:bg-brand-200 hover:text-brand-900 dark:hover:bg-brand-800"
+                >
+                  <X size={12} />
+                </button>
+              </span>
+            ))}
+            {Object.values(profile.must_haves ?? {}).filter(Boolean).length === 0 && (
+              <span className="text-sm text-stone-400">None — everything passes the hard filters.</span>
+            )}
+          </div>
+
+          <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-stone-400">
+            Nice-to-haves <span className="normal-case">(weighted scoring)</span>
+          </h3>
+          <div className="space-y-1">
+            {(profile.nice_to_haves ?? []).map((c, idx) => (
+              <div
+                key={`${c.kind}-${c.key ?? c.text}-${idx}`}
+                className="flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-sm hover:bg-stone-50 dark:hover:bg-stone-800/50"
+              >
+                <span className="min-w-0 truncate">
+                  {criterionLabel(c)}
+                  <span
+                    className={`ml-2 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
+                      c.kind === 'desire'
+                        ? 'bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300'
+                        : 'bg-stone-100 text-stone-500 dark:bg-stone-800'
+                    }`}
+                    title={c.kind === 'desire' ? 'Free-text desire, judged by AI per listing' : 'Structured criterion, checked automatically'}
+                  >
+                    {c.kind === 'desire' ? 'AI-judged' : 'structured'}
+                  </span>
+                </span>
+                <span className="flex shrink-0 items-center gap-2">
+                  <select
+                    value={c.weight}
+                    onChange={(e) => {
+                      const next = profile.nice_to_haves.map((n, i) =>
+                        i === idx ? { ...n, weight: Number(e.target.value) } : n,
+                      )
+                      save.mutate({ nice_to_haves: next })
+                    }}
+                    title="Weight — how much this matters"
+                    className="rounded-lg border border-stone-300 bg-transparent px-1.5 py-1 text-xs dark:border-stone-700"
+                  >
+                    <option value={1}>×1</option>
+                    <option value={2}>×2</option>
+                    <option value={3}>×3</option>
+                  </select>
+                  <button
+                    onClick={() => {
+                      const next = profile.nice_to_haves.filter((_, i) => i !== idx)
+                      save.mutate({ nice_to_haves: next })
+                    }}
+                    title={`Remove: ${criterionLabel(c)}`}
+                    className="text-stone-400 hover:text-red-500"
+                  >
+                    <X size={14} />
+                  </button>
+                </span>
+              </div>
+            ))}
+            {(profile.nice_to_haves ?? []).length === 0 && (
+              <p className="px-2 text-sm text-stone-400">
+                None — scoring uses price value only. Add preferences via the Agent chat.
+              </p>
+            )}
           </div>
         </div>
       )}
