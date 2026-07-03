@@ -19,6 +19,7 @@ MODEL_PRICES = {
     "claude-sonnet-5": (3.0, 15.0),
     "claude-sonnet-4": (3.0, 15.0),
     "claude-haiku-4-5": (1.0, 5.0),
+    "ollama:": (0.0, 0.0),  # local models are free
 }
 
 
@@ -44,6 +45,7 @@ def ai_usage(session: Session = Depends(get_session)):
     budget = settings.ai_budget_usd or 0
     return {
         "month": month,
+        "provider": settings.ai_provider,
         "input_tokens": total_in,
         "output_tokens": total_out,
         "calls": calls,

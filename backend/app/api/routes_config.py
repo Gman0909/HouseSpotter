@@ -14,10 +14,16 @@ log = logging.getLogger("housespotter.config")
 
 # field on Settings → metadata. Order matters (UI renders in this order).
 SETTINGS_META: dict[str, dict] = {
+    "ai_provider": {"env": "HS_AI_PROVIDER", "secret": False, "kind": "str", "section": "ai",
+                    "label": "Provider"},
     "anthropic_api_key": {"env": "HS_ANTHROPIC_API_KEY", "secret": True, "kind": "str", "section": "ai",
                           "label": "Anthropic API key"},
     "ai_budget_usd": {"env": "HS_AI_BUDGET_USD", "secret": False, "kind": "float", "section": "ai",
                       "label": "Monthly AI budget (USD)"},
+    "ollama_url": {"env": "HS_OLLAMA_URL", "secret": False, "kind": "str", "section": "ai",
+                   "label": "Ollama server URL"},
+    "ollama_model": {"env": "HS_OLLAMA_MODEL", "secret": False, "kind": "str", "section": "ai",
+                     "label": "Ollama model"},
     "telegram_bot_token": {"env": "HS_TELEGRAM_BOT_TOKEN", "secret": True, "kind": "str", "section": "telegram",
                            "label": "Bot token"},
     "smtp_host": {"env": "HS_SMTP_HOST", "secret": False, "kind": "str", "section": "email", "label": "SMTP host"},
@@ -149,6 +155,29 @@ def test_anthropic():
     except Exception as exc:
         raise HTTPException(502, f"Anthropic rejected the key: {exc}")
     return {"ok": True, "detail": "Key is valid"}
+
+
+@router.post("/test/ollama")
+def test_ollama():
+    if not settings.ollama_url:
+        raise HTTPException(422, "Set the Ollama server URL first")
+    import httpx
+
+    try:
+        resp = httpx.get(f"{settings.ollama_url.rstrip('/')}/api/tags", timeout=10)
+        data = resp.json()
+    except Exception:
+        raise HTTPException(502, "Couldn't reach the Ollama server — check the URL (and that Ollama listens on 0.0.0.0)")
+    names = [m.get("name", "") for m in data.get("models", [])]
+    if not settings.ollama_model:
+        raise HTTPException(422, f"Server reachable — now set a model. Available: {', '.join(names) or 'none pulled yet'}")
+    if not any(n == settings.ollama_model or n.startswith(settings.ollama_model + ":") for n in names):
+        raise HTTPException(
+            422,
+            f"Server reachable but '{settings.ollama_model}' isn't pulled. Available: {', '.join(names) or 'none'} "
+            f"— run: ollama pull {settings.ollama_model}",
+        )
+    return {"ok": True, "detail": f"Ollama reachable — model {settings.ollama_model} is ready"}
 
 
 @router.post("/test/ors")

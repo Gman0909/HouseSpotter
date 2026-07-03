@@ -44,6 +44,9 @@ class SearchProfile(SQLModel, table=True):
     # [{"key":"parking","kind":"structured","weight":3},
     #  {"text":"period features","kind":"desire","weight":2}]
     nice_to_haves: list = Field(default_factory=list, sa_column=Column(JSON))
+    # portal-style one-click exclusions: ["retirement","shared_ownership","auction","park_home"]
+    exclusions: list = Field(default_factory=list, sa_column=Column(JSON))
+    min_floor_area: Optional[int] = None  # square metres; unknown areas are not excluded
     # [{"label":"Office","lat":51.5,"lng":-0.1,"max_minutes":45,"mode":"transit"}]
     commutes: list = Field(default_factory=list, sa_column=Column(JSON))
     # {"transport":3,"safety":3,"amenities":2,"green":2,"schools":0,"quiet":1}

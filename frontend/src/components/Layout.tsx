@@ -1,13 +1,12 @@
 import type { ReactNode } from 'react'
 import { NavLink } from 'react-router-dom'
-import { Home, Heart, Map, MessageCircle, SlidersHorizontal, Activity, Settings } from 'lucide-react'
+import { Home, Heart, Map, SlidersHorizontal, Activity, Settings } from 'lucide-react'
 import clsx from 'clsx'
 
 const NAV = [
   { to: '/', label: 'Homes', short: 'Homes', icon: Home },
   { to: '/lists', label: 'Lists', short: 'Lists', icon: Heart },
   { to: '/areas', label: 'Areas', short: 'Areas', icon: Map },
-  { to: '/chat', label: 'Agent', short: 'Agent', icon: MessageCircle },
   { to: '/settings', label: 'Search Profiles', short: 'Profiles', icon: SlidersHorizontal },
   { to: '/system', label: 'Status', short: 'Status', icon: Activity },
   { to: '/config', label: 'Settings', short: 'Settings', icon: Settings },

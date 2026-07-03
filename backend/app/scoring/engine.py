@@ -76,6 +76,17 @@ def _milestone_access_check(prop: Property, listing: Listing, profile: SearchPro
         return 0.5, "no milestones set"
     return score["typical"] / 100, f"~{round(avg_car)} min drive to your places"
 
+# Portal-style one-click exclusions: listing text mentioning any keyword fails the filter.
+EXCLUSION_CHECKS: dict[str, tuple[list[str], str]] = {
+    "retirement": (
+        ["retirement", "over 55", "over-55", "over 60", "age restricted", "age-restricted", "sheltered housing"],
+        "Retirement property",
+    ),
+    "shared_ownership": (["shared ownership", "part buy", "part-buy"], "Shared ownership"),
+    "auction": (["auction"], "Auction"),
+    "park_home": (["park home", "mobile home", "residential park"], "Park home"),
+}
+
 STRUCTURED_CHECKS = {
     "parking": (_keyword_check(["parking", "garage", "driveway", "off street", "off-street", "off road", "off-road", "carport"]), "Parking"),
     "garden": (_keyword_check(["garden", "lawn", "patio"], exclude=["garden room", "winter garden"]), "Garden"),
@@ -124,6 +135,15 @@ def passes_hard_filters(prop: Property, listing: Listing, profile: SearchProfile
         )
         if not inside:
             return False, "outside target area"
+    if profile.min_floor_area and prop.floor_area_sqm and prop.floor_area_sqm < profile.min_floor_area:
+        return False, f"only {round(prop.floor_area_sqm)} m²"
+    for key in profile.exclusions or []:
+        entry = EXCLUSION_CHECKS.get(key)
+        if entry:
+            keywords, label = entry
+            blob = _text_blob(prop)
+            if any(kw in blob for kw in keywords):
+                return False, f"excluded: {label.lower()}"
     # Structured must-haves (boolean keys checked against listing text)
     for key, required in (profile.must_haves or {}).items():
         if required and key in STRUCTURED_CHECKS:

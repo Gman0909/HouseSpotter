@@ -8,7 +8,6 @@ import FeedPage from './pages/FeedPage'
 import PropertyPage from './pages/PropertyPage'
 import ListsPage from './pages/ListsPage'
 import AreasPage from './pages/AreasPage'
-import ChatPage from './pages/ChatPage'
 import SettingsPage from './pages/SettingsPage'
 import SystemPage from './pages/SystemPage'
 import ConfigPage from './pages/ConfigPage'
@@ -56,7 +55,7 @@ export default function App() {
         <Route path="/property/:id" element={<PropertyPage />} />
         <Route path="/lists" element={<ListsPage />} />
         <Route path="/areas" element={<AreasPage />} />
-        <Route path="/chat" element={<ChatPage />} />
+        <Route path="/chat" element={<Navigate to="/settings?agent=1" replace />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/system" element={<SystemPage />} />
         <Route path="/config" element={<ConfigPage />} />

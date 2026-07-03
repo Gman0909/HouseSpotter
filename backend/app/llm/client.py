@@ -31,7 +31,53 @@ def get_client():
 
 
 def llm_available() -> bool:
-    return bool(settings.anthropic_api_key)
+    """True when a usable AI provider is configured (drives feature gating too)."""
+    if settings.ai_provider == "anthropic":
+        return bool(settings.anthropic_api_key)
+    if settings.ai_provider == "ollama":
+        return bool(settings.ollama_url and settings.ollama_model)
+    return False
+
+
+def ollama_chat(
+    messages: list[dict],
+    *,
+    format_schema: dict | None = None,
+    tools: list[dict] | None = None,
+    max_tokens: int = 2000,
+) -> dict | None:
+    """One /api/chat call against the configured Ollama server. Returns the raw
+    response dict (message, eval counts) or None on failure. Records usage at $0."""
+    import httpx
+
+    payload: dict = {
+        "model": settings.ollama_model,
+        "messages": messages,
+        "stream": False,
+        "options": {"num_predict": max_tokens},
+    }
+    if format_schema:
+        payload["format"] = format_schema
+    if tools:
+        payload["tools"] = tools
+    try:
+        resp = httpx.post(
+            f"{settings.ollama_url.rstrip('/')}/api/chat", json=payload, timeout=300
+        )
+        if resp.status_code != 200:
+            log.warning("Ollama call failed: %s %s", resp.status_code, resp.text[:200])
+            return None
+        data = resp.json()
+    except Exception:
+        log.exception("Ollama unreachable")
+        return None
+
+    class _Usage:
+        input_tokens = data.get("prompt_eval_count", 0)
+        output_tokens = data.get("eval_count", 0)
+
+    record_usage(f"ollama:{settings.ollama_model}", _Usage())
+    return data
 
 
 def make_cache_key(*parts: str) -> str:
@@ -70,7 +116,14 @@ def cached_json_call(
     schema: dict,
     max_tokens: int = 2000,
 ) -> dict | None:
-    """JSON-schema-constrained call, cached forever by cache_key. None if LLM unavailable."""
+    """JSON-schema-constrained call, cached forever by cache_key. None if LLM unavailable.
+
+    The cache key is scoped by the effective provider+model, so switching between
+    Anthropic and a local model never serves the other's answers."""
+    if settings.ai_provider == "ollama":
+        model = f"ollama:{settings.ollama_model}"
+    cache_key = make_cache_key(cache_key, settings.ai_provider, model)
+
     with Session(engine) as session:
         from sqlmodel import select
 
@@ -78,22 +131,34 @@ def cached_json_call(
         if row:
             return row.response
 
-    client = get_client()
-    if client is None:
+    if not llm_available():
         return None
 
-    response = client.messages.create(
-        model=model,
-        max_tokens=max_tokens,
-        system=system,
-        messages=[{"role": "user", "content": user_content}],
-        output_config={"format": {"type": "json_schema", "schema": schema}},
-    )
-    record_usage(model, response.usage)
-    if response.stop_reason == "refusal":
-        log.warning("LLM refused request (cache_key=%s)", cache_key[:12])
-        return None
-    text = next((b.text for b in response.content if b.type == "text"), "")
+    if settings.ai_provider == "ollama":
+        raw = ollama_chat(
+            [{"role": "system", "content": system}, {"role": "user", "content": user_content}],
+            format_schema=schema,
+            max_tokens=max_tokens,
+        )
+        if raw is None:
+            return None
+        text = (raw.get("message") or {}).get("content", "")
+    else:
+        client = get_client()
+        if client is None:
+            return None
+        response = client.messages.create(
+            model=model,
+            max_tokens=max_tokens,
+            system=system,
+            messages=[{"role": "user", "content": user_content}],
+            output_config={"format": {"type": "json_schema", "schema": schema}},
+        )
+        record_usage(model, response.usage)
+        if response.stop_reason == "refusal":
+            log.warning("LLM refused request (cache_key=%s)", cache_key[:12])
+            return None
+        text = next((b.text for b in response.content if b.type == "text"), "")
     try:
         data = json.loads(text)
     except json.JSONDecodeError:

@@ -5,6 +5,7 @@ import { api, ApiError } from '../lib/api'
 
 interface AiUsage {
   month: string
+  provider: string
   input_tokens: number
   output_tokens: number
   calls: number
@@ -34,7 +35,7 @@ function sessionId(): string {
   return sid
 }
 
-export default function ChatPage() {
+export default function ChatPanel() {
   const sid = sessionId()
   const qc = useQueryClient()
   const [draft, setDraft] = useState('')
@@ -57,6 +58,7 @@ export default function ChatPage() {
       setPendingUser(null)
       qc.invalidateQueries({ queryKey: ['chat', sid] })
       qc.invalidateQueries({ queryKey: ['profiles'] })
+      qc.invalidateQueries({ queryKey: ['profile-history'] })
     },
     onError: (err) => {
       setError(err instanceof ApiError ? err.message : 'Something went wrong')
@@ -80,15 +82,7 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="mx-auto flex h-full max-w-3xl flex-col p-4 md:p-6">
-      <div className="mb-1 flex items-center justify-between gap-2">
-        <h1 className="text-2xl font-bold tracking-tight">Your agent</h1>
-        <UsageChip />
-      </div>
-      <p className="mb-4 text-sm text-stone-500">
-        Describe what you're looking for — budget, areas, must-haves — and I'll set up your search.
-      </p>
-
+    <div className="flex h-full flex-col">
       <div className="flex-1 space-y-3 overflow-y-auto rounded-2xl border border-stone-200 bg-white p-4 dark:border-stone-800 dark:bg-stone-900">
         {messages.length === 0 && !send.isPending && (
           <div className="flex h-full items-center justify-center text-center text-sm text-stone-400">
@@ -151,14 +145,15 @@ export default function ChatPage() {
   )
 }
 
-function UsageChip() {
+export function UsageChip() {
   const usage = useQuery({
     queryKey: ['ai-usage'],
     queryFn: () => api.get<AiUsage>('/api/system/usage'),
     refetchInterval: 60_000,
   })
   const u = usage.data
-  if (!u || !u.budget_usd) return null
+  // Local models are free — the budget chip only makes sense for Anthropic
+  if (!u || u.provider !== 'anthropic' || !u.budget_usd) return null
   const pctLeft = Math.max(0, Math.round(((u.remaining_usd ?? 0) / u.budget_usd) * 100))
   const low = pctLeft < 15
   const tokens = u.input_tokens + u.output_tokens

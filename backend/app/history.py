@@ -15,8 +15,8 @@ log = logging.getLogger("housespotter.history")
 EDITABLE_FIELDS = {
     "name", "mode", "active", "min_price", "max_price", "min_beds", "max_beds",
     "min_baths", "property_types", "tenures", "locations", "must_haves",
-    "nice_to_haves", "commutes", "qol_weights", "brief", "alert_threshold",
-    "alert_channels", "alert_digest", "quiet_hours",
+    "nice_to_haves", "exclusions", "min_floor_area", "commutes", "qol_weights",
+    "brief", "alert_threshold", "alert_channels", "alert_digest", "quiet_hours",
 }
 # Changes to these invalidate cached match scores (bump criteria_version).
 CRITERIA_FIELDS = EDITABLE_FIELDS - {

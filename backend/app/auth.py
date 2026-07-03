@@ -120,8 +120,15 @@ def me(user: User = Depends(require_user)):
                 "bot_username": _bot_username(),
             },
             "email": {"server": bool(settings.smtp_host), "user": bool(user.email_to)},
+            "ai": {"configured": _ai_ready(), "provider": settings.ai_provider},
         },
     }
+
+
+def _ai_ready() -> bool:
+    from .llm.client import llm_available
+
+    return llm_available()
 
 
 @router.patch("/me/alerts")

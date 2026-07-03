@@ -25,22 +25,34 @@ const SECTIONS: {
   icon: typeof Bot
   blurb: string
   help: React.ReactNode
-  tests?: { label: string; endpoint: string }[]
+  tests?: { label: string; endpoint: string; provider?: string }[]
 }[] = [
   {
     id: 'ai',
-    title: 'AI — Anthropic',
+    title: 'AI',
     icon: Bot,
-    blurb: 'Powers the Agent chat, free-text desire scoring and area narratives.',
+    blurb: 'Powers the AI agent, free-text desire scoring and area narratives. Optional — everything else works without it.',
     help: (
-      <ol className="list-decimal space-y-1 pl-4">
-        <li>Go to <b>platform.claude.com</b> and sign in (or create an account).</li>
-        <li>Open <b>Settings → API keys → Create key</b>.</li>
-        <li>Copy the key (starts with <code>sk-ant-</code>) and paste it here.</li>
-        <li>Costs are pay-as-you-go — HouseSpotter caches every response, so typical usage is a few pounds a month.</li>
-      </ol>
+      <div className="space-y-2">
+        <p className="font-semibold">Anthropic (cloud, best quality):</p>
+        <ol className="list-decimal space-y-1 pl-4">
+          <li>Go to <b>platform.claude.com</b> → Settings → API keys → Create key.</li>
+          <li>Paste the key (starts with <code>sk-ant-</code>) here. Pay-as-you-go; responses are cached, so typical usage is a few pounds a month.</li>
+        </ol>
+        <p className="pt-1 font-semibold">Ollama (local, free):</p>
+        <ol className="list-decimal space-y-1 pl-4">
+          <li>Install <b>ollama.com</b> on a machine with decent RAM — <b>not the Pi</b> (it shares memory with your media services). Your desktop PC over the tailnet is ideal.</li>
+          <li>Pull a model: <code>ollama pull qwen2.5:14b</code> (agent chat wants 14B+; scoring alone is fine on 7–8B like <code>llama3.1:8b</code>).</li>
+          <li>Expose it to the network: set the <code>OLLAMA_HOST=0.0.0.0</code> environment variable and restart Ollama.</li>
+          <li>Enter the URL here, e.g. <code>http://100.97.37.87:11434</code>, plus the model name, then <b>Test Ollama</b>.</li>
+        </ol>
+        <p className="text-xs">Local models are free but noticeably weaker than Claude for the conversational agent — scoring quality is close, chat can be clumsy.</p>
+      </div>
     ),
-    tests: [{ label: 'Test key', endpoint: '/api/config/test/anthropic' }],
+    tests: [
+      { label: 'Test key', endpoint: '/api/config/test/anthropic', provider: 'anthropic' },
+      { label: 'Test Ollama', endpoint: '/api/config/test/ollama', provider: 'ollama' },
+    ],
   },
   {
     id: 'telegram',
@@ -434,6 +446,20 @@ function ConfigSection({
   const dirty = Object.keys(draft).length > 0
   const needsRestart = items.some((i) => i.restart_required && i.key in draft)
 
+  // AI section: the provider select decides which fields (and test buttons) show
+  const providerItem = items.find((i) => i.key === 'ai_provider')
+  const provider = (providerItem && ((draft.ai_provider as string) ?? (providerItem.value as string))) || 'none'
+  const PROVIDER_FIELDS: Record<string, string> = {
+    anthropic_api_key: 'anthropic',
+    ai_budget_usd: 'anthropic',
+    ollama_url: 'ollama',
+    ollama_model: 'ollama',
+  }
+  const visibleItems = items.filter(
+    (i) => !PROVIDER_FIELDS[i.key] || PROVIDER_FIELDS[i.key] === provider,
+  )
+  const visibleTests = (section.tests ?? []).filter((t) => !t.provider || t.provider === provider)
+
   return (
     <div id={`server-${section.id}`} className="scroll-mt-4 rounded-2xl border border-stone-200 bg-white p-5 dark:border-stone-800 dark:bg-stone-900">
       <div className="mb-1 flex items-center justify-between gap-2">
@@ -457,11 +483,11 @@ function ConfigSection({
       )}
 
       <div className="space-y-3">
-        {items.map((item) => (
+        {visibleItems.map((item) => (
           <div key={item.key} className="flex flex-wrap items-center justify-between gap-2">
             <span className="flex items-center gap-1.5 text-sm font-medium">
               {item.label}
-              {item.kind !== 'bool' && (
+              {item.kind !== 'bool' && item.key !== 'ai_provider' && (
                 item.set ? (
                   <CheckCircle2 size={13} className="text-brand-500" />
                 ) : (
@@ -469,7 +495,17 @@ function ConfigSection({
                 )
               )}
             </span>
-            {item.kind === 'bool' ? (
+            {item.key === 'ai_provider' ? (
+              <select
+                className="input w-64"
+                value={(draft.ai_provider as string) ?? (item.value as string) ?? 'none'}
+                onChange={(e) => setDraft((d) => ({ ...d, ai_provider: e.target.value }))}
+              >
+                <option value="none">None — AI features hidden</option>
+                <option value="anthropic">Anthropic (cloud)</option>
+                <option value="ollama">Ollama (local)</option>
+              </select>
+            ) : item.kind === 'bool' ? (
               <button
                 onClick={() =>
                   setDraft((d) => ({
@@ -516,7 +552,7 @@ function ConfigSection({
         >
           {save.isPending ? 'Saving…' : 'Save'}
         </button>
-        {section.tests?.map((t) => (
+        {visibleTests.map((t) => (
           <button
             key={t.endpoint}
             onClick={() => runTest.mutate(t.endpoint)}

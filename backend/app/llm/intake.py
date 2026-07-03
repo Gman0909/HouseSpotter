@@ -125,6 +125,12 @@ PROFILE_TOOL = {
             },
             "brief": {"type": "string", "description": "One-paragraph summary of what the user wants, in their words"},
             "alert_threshold": {"type": "integer", "description": "Minimum match score (0-100) to alert on, default 70"},
+            "exclusions": {
+                "type": "array",
+                "items": {"type": "string", "enum": ["retirement", "shared_ownership", "auction", "park_home"]},
+                "description": "Listing kinds to exclude entirely",
+            },
+            "min_floor_area": {"type": ["integer", "null"], "description": "Minimum floor area in square metres"},
         },
         "required": ["name", "mode", "brief"],
         "additionalProperties": False,
@@ -133,8 +139,8 @@ PROFILE_TOOL = {
 
 PROFILE_FIELDS = {
     "name", "mode", "min_price", "max_price", "min_beds", "max_beds", "min_baths",
-    "property_types", "tenures", "must_haves", "nice_to_haves", "commutes",
-    "qol_weights", "brief", "alert_threshold",
+    "property_types", "tenures", "must_haves", "nice_to_haves", "exclusions",
+    "min_floor_area", "commutes", "qol_weights", "brief", "alert_threshold",
 }
 
 
@@ -181,14 +187,63 @@ def _apply_profile(session: Session, session_id: str, data: dict, user: User) ->
     return profile, created
 
 
+def _ollama_turn(system: str, api_messages: list[dict], session: Session, session_id: str, user: User):
+    """Tool-use loop against a local Ollama model. Returns (reply, profile_saved)."""
+    import json as _json
+
+    from .client import ollama_chat
+
+    tools = [{
+        "type": "function",
+        "function": {
+            "name": PROFILE_TOOL["name"],
+            "description": PROFILE_TOOL["description"],
+            "parameters": PROFILE_TOOL["input_schema"],
+        },
+    }]
+    messages = [{"role": "system", "content": system}] + api_messages
+    profile_saved = None
+    reply = ""
+    for _ in range(3):
+        raw = ollama_chat(messages, tools=tools, max_tokens=1500)
+        if raw is None:
+            raise HTTPException(502, "The local AI server didn't respond — check the Ollama settings.")
+        msg = raw.get("message") or {}
+        reply = msg.get("content") or ""
+        tool_calls = msg.get("tool_calls") or []
+        if not tool_calls:
+            break
+        messages.append(msg)
+        for call in tool_calls:
+            args = (call.get("function") or {}).get("arguments") or {}
+            if isinstance(args, str):
+                try:
+                    args = _json.loads(args)
+                except _json.JSONDecodeError:
+                    args = {}
+            try:
+                profile_saved, created = _apply_profile(session, session_id, args, user)
+                result = (
+                    f"Profile {'created' if created else 'updated'} (id={profile_saved.id}, "
+                    f"criteria v{profile_saved.criteria_version}). Scoring has started."
+                )
+            except Exception as exc:
+                log.exception("Failed to apply profile from ollama tool call")
+                result = f"Error saving profile: {exc}"
+            messages.append({"role": "tool", "content": result})
+    return reply, profile_saved
+
+
 def intake_turn(session: Session, session_id: str, text: str, user: User) -> dict:
-    client = get_client()
-    if client is None:
+    from .client import llm_available
+
+    if not llm_available():
         raise HTTPException(
             503,
-            "AI agent not configured — set HS_ANTHROPIC_API_KEY in .env. "
-            "You can still create profiles manually in Search Profiles.",
+            "AI agent not configured — set up an AI provider in Settings. "
+            "You can still create and edit profiles manually in Search Profiles.",
         )
+    client = get_client() if settings.ai_provider == "anthropic" else None
 
     import json
 
@@ -221,40 +276,43 @@ def intake_turn(session: Session, session_id: str, text: str, user: User) -> dic
 
     profile_saved = None
     api_messages = list(messages)
-    for _ in range(3):  # allow tool call + follow-up
-        response = client.messages.create(
-            model=settings.model_intake,
-            max_tokens=1500,
-            system=system,
-            messages=api_messages,
-            tools=[PROFILE_TOOL],
-        )
-        from .client import record_usage
+    if settings.ai_provider == "ollama":
+        reply, profile_saved = _ollama_turn(system, api_messages, session, session_id, user)
+    else:
+        for _ in range(3):  # allow tool call + follow-up
+            response = client.messages.create(
+                model=settings.model_intake,
+                max_tokens=1500,
+                system=system,
+                messages=api_messages,
+                tools=[PROFILE_TOOL],
+            )
+            from .client import record_usage
 
-        record_usage(settings.model_intake, response.usage)
-        if response.stop_reason != "tool_use":
-            break
-        api_messages.append({"role": "assistant", "content": response.content})
-        tool_results = []
-        for block in response.content:
-            if block.type == "tool_use":
-                try:
-                    profile_saved, created = _apply_profile(session, session_id, block.input, user)
-                    result = (
-                        f"Profile {'created' if created else 'updated'} (id={profile_saved.id}, "
-                        f"criteria v{profile_saved.criteria_version}). Scoring has started."
-                    )
-                except Exception as exc:
-                    log.exception("Failed to apply profile from intake tool call")
-                    result = f"Error saving profile: {exc}"
-                tool_results.append({
-                    "type": "tool_result",
-                    "tool_use_id": block.id,
-                    "content": result,
-                })
-        api_messages.append({"role": "user", "content": tool_results})
+            record_usage(settings.model_intake, response.usage)
+            if response.stop_reason != "tool_use":
+                break
+            api_messages.append({"role": "assistant", "content": response.content})
+            tool_results = []
+            for block in response.content:
+                if block.type == "tool_use":
+                    try:
+                        profile_saved, created = _apply_profile(session, session_id, block.input, user)
+                        result = (
+                            f"Profile {'created' if created else 'updated'} (id={profile_saved.id}, "
+                            f"criteria v{profile_saved.criteria_version}). Scoring has started."
+                        )
+                    except Exception as exc:
+                        log.exception("Failed to apply profile from intake tool call")
+                        result = f"Error saving profile: {exc}"
+                    tool_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": result,
+                    })
+            api_messages.append({"role": "user", "content": tool_results})
 
-    reply = next((b.text for b in response.content if b.type == "text"), "")
+        reply = next((b.text for b in response.content if b.type == "text"), "")
     if not reply:
         reply = "Done — your search is set up. Anything you'd like to adjust?"
 

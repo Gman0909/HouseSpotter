@@ -7,7 +7,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 from .config import settings
 from .models import Meta, User  # noqa: F401 — import registers all models
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 engine = create_engine(
     f"sqlite:///{settings.db_path}",
@@ -152,10 +152,26 @@ def _migrate_v4_multi_user(session: Session) -> None:
     session.commit()
 
 
+def _migrate_v5_portal_filters(session: Session) -> None:
+    """Add exclusions + min floor area to search profiles."""
+    from sqlalchemy.exc import OperationalError
+
+    for stmt in (
+        "ALTER TABLE searchprofile ADD COLUMN exclusions TEXT DEFAULT '[]'",
+        "ALTER TABLE searchprofile ADD COLUMN min_floor_area INTEGER",
+    ):
+        try:
+            session.exec(text(stmt))
+        except OperationalError:
+            pass  # column already exists (fresh install via create_all)
+    session.commit()
+
+
 MIGRATIONS: dict[int, list] = {
     2: [_migrate_v2_area_searches],
     3: [_migrate_v3_baseline_snapshots],
     4: [_migrate_v4_multi_user],
+    5: [_migrate_v5_portal_filters],
 }
 
 

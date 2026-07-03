@@ -24,8 +24,31 @@ def list_profiles(session: Session = Depends(get_session), user: User = Depends(
     return session.exec(select(SearchProfile).where(SearchProfile.user_id == user.id)).all()
 
 
+@router.get("/vocabulary")
+def criteria_vocabulary(_user: User = Depends(require_user)):
+    """The validated criterion vocabulary — single source of truth is the scoring
+    engine's check registry, so the UI can never offer an uncheckable criterion."""
+    from ..scoring.engine import EXCLUSION_CHECKS, STRUCTURED_CHECKS
+
+    return {
+        # 'value' is auto-applied to every profile — not offered in the palette
+        "criteria": [
+            {"key": key, "label": label}
+            for key, (_check, label) in STRUCTURED_CHECKS.items()
+            if key != "value"
+        ],
+        "exclusions": [
+            {"key": key, "label": label} for key, (_kw, label) in EXCLUSION_CHECKS.items()
+        ],
+        "property_types": ["detached", "semi-detached", "terraced", "flat", "bungalow", "land", "park-home"],
+        "tenures": ["freehold", "leasehold", "share-of-freehold"],
+    }
+
+
 @router.post("")
 def create_profile(body: dict, session: Session = Depends(get_session), user: User = Depends(require_user)):
+    if isinstance(body.get("locations"), list):
+        body["locations"] = _geocode_locations(body["locations"])
     profile = SearchProfile(**{k: v for k, v in body.items() if k in EDITABLE_FIELDS})
     profile.user_id = user.id
     session.add(profile)

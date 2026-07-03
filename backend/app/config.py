@@ -25,12 +25,17 @@ class Settings(BaseSettings):
     session_secret: str = ""  # required
     session_days: int = 30
 
+    # AI provider: "anthropic" | "ollama" | "none"
+    ai_provider: str = "anthropic"
     # Anthropic
     anthropic_api_key: str = ""
     model_intake: str = "claude-opus-4-8"
     model_scoring: str = "claude-haiku-4-5-20251001"
     model_research: str = "claude-opus-4-8"
     ai_budget_usd: float = 15.0  # monthly reference budget for the usage indicator
+    # Ollama (local AI) — e.g. http://100.97.37.87:11434 on the tailnet
+    ollama_url: str = ""
+    ollama_model: str = ""
 
     # Telegram
     telegram_bot_token: str = ""

@@ -14,6 +14,8 @@ export interface Profile {
   locations: { label: string; lat: number; lng: number; radius_km: number }[]
   must_haves: Record<string, boolean>
   nice_to_haves: { key?: string; text?: string; kind: string; weight: number }[]
+  exclusions: string[]
+  min_floor_area: number | null
   commutes: { label: string; lat: number; lng: number; max_minutes: number; mode: string }[]
   qol_weights: Record<string, number>
   brief: string
