@@ -94,9 +94,16 @@ export default function PropertyCardView({
           {card.access_score !== null && (
             <span
               className="ml-auto flex items-center gap-0.5 font-semibold text-brand-600 dark:text-brand-400"
-              title="Milestone access score"
+              title={
+                card.access_peak !== null && card.access_offpeak !== null
+                  ? `Milestone access score ${card.access_score} (peak traffic ${card.access_peak} – off-peak ${card.access_offpeak})`
+                  : 'Milestone access score'
+              }
             >
-              <Zap size={12} /> {card.access_score}
+              <Zap size={12} />
+              {card.access_peak !== null && card.access_offpeak !== null && card.access_peak !== card.access_offpeak
+                ? `${card.access_peak}–${card.access_offpeak}`
+                : card.access_score}
             </span>
           )}
         </div>

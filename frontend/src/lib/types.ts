@@ -47,6 +47,8 @@ export interface PropertyCard {
   passed_filters: boolean | null
   rationale: string | null
   access_score: number | null
+  access_peak: number | null
+  access_offpeak: number | null
 }
 
 export interface MilestoneInfo {
@@ -76,6 +78,8 @@ export interface TravelRow {
 export interface TravelInfo {
   milestones: TravelRow[]
   access_score: number | null
+  access_peak: number | null
+  access_offpeak: number | null
   avg_car_minutes: number | null
 }
 

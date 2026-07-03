@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { LayoutGrid, Loader2, Map as MapIcon, RefreshCw, X } from 'lucide-react'
@@ -40,12 +40,54 @@ const SORTS = [
   { id: 'access', label: 'Access' },
 ]
 
+// Feed view state survives navigating away and back (sessionStorage = per-tab)
+const FEED_STATE_KEY = 'hs-feed-state'
+const FEED_SCROLL_KEY = 'hs-feed-scroll'
+
+function loadFeedState(): { sort?: string; view?: 'grid' | 'map'; profileId?: number | null; area?: string | null } {
+  try {
+    return JSON.parse(sessionStorage.getItem(FEED_STATE_KEY) ?? '{}')
+  } catch {
+    return {}
+  }
+}
+
 export default function FeedPage() {
-  const [profileId, setProfileId] = useState<number | null>(null)
-  const [sort, setSort] = useState('score')
-  const [view, setView] = useState<'grid' | 'map'>('grid')
+  const stored = loadFeedState()
+  const [profileId, setProfileId] = useState<number | null>(stored.profileId ?? null)
+  const [sort, setSort] = useState(stored.sort ?? 'score')
+  const [view, setView] = useState<'grid' | 'map'>(stored.view ?? 'grid')
   const [searchParams, setSearchParams] = useSearchParams()
-  const areaFilter = searchParams.get('area')
+  const urlArea = searchParams.get('area')
+  const [areaFilter, setAreaFilter] = useState<string | null>(urlArea ?? stored.area ?? null)
+
+  // Arriving via an Areas-page link (?area=CB1) overrides whatever was stored
+  useEffect(() => {
+    if (urlArea && urlArea !== areaFilter) setAreaFilter(urlArea)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlArea])
+
+  function clearArea() {
+    setAreaFilter(null)
+    if (urlArea) setSearchParams({})
+  }
+
+  useEffect(() => {
+    sessionStorage.setItem(
+      FEED_STATE_KEY,
+      JSON.stringify({ sort, view, profileId, area: areaFilter }),
+    )
+  }, [sort, view, profileId, areaFilter])
+
+  // Scroll persistence: save as the user scrolls, restore once the feed has rendered
+  const restoredScroll = useRef(false)
+  useEffect(() => {
+    const el = document.getElementById('hs-main')
+    if (!el) return
+    const onScroll = () => sessionStorage.setItem(FEED_SCROLL_KEY, String(el.scrollTop))
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => el.removeEventListener('scroll', onScroll)
+  }, [])
 
   const qc = useQueryClient()
   const profiles = useQuery({
@@ -77,6 +119,18 @@ export default function FeedPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['scan-status'] }),
   })
 
+  useEffect(() => {
+    if (restoredScroll.current || !feed.data) return
+    restoredScroll.current = true
+    const el = document.getElementById('hs-main')
+    const saved = Number(sessionStorage.getItem(FEED_SCROLL_KEY) || 0)
+    if (el && saved > 0) {
+      requestAnimationFrame(() => {
+        el.scrollTop = saved
+      })
+    }
+  }, [feed.data])
+
   const savedIds = useQuery({
     queryKey: ['saved-ids'],
     queryFn: () => api.get<number[]>('/api/lists/saved-property-ids'),
@@ -91,7 +145,7 @@ export default function FeedPage() {
             <h1 className="text-2xl font-bold tracking-tight">Homes for you</h1>
             {areaFilter && (
               <button
-                onClick={() => setSearchParams({})}
+                onClick={clearArea}
                 title="Clear area filter"
                 className="flex items-center gap-1 rounded-full bg-brand-600 px-3 py-1 text-xs font-semibold text-white hover:bg-brand-700"
               >

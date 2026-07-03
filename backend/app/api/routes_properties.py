@@ -8,7 +8,7 @@ from ..models import Listing, MatchScore, Property, SearchProfile, User
 router = APIRouter(prefix="/api/properties", tags=["properties"])
 
 
-def _card(prop: Property, listing: Listing | None, match: MatchScore | None, access: int | None = None) -> dict:
+def _card(prop: Property, listing: Listing | None, match: MatchScore | None, access: dict | None = None) -> dict:
     return {
         "id": prop.id,
         "address": prop.address,
@@ -32,7 +32,9 @@ def _card(prop: Property, listing: Listing | None, match: MatchScore | None, acc
         "score": match.score if match else None,
         "passed_filters": match.passed_filters if match else None,
         "rationale": match.rationale if match else None,
-        "access_score": access,
+        "access_score": access["typical"] if access else None,
+        "access_peak": access["peak"] if access else None,
+        "access_offpeak": access["offpeak"] if access else None,
     }
 
 
@@ -138,4 +140,10 @@ def property_travel(property_id: int, force: bool = False, session: Session = De
 
     rows = compute_property_travel(property_id, user.id, force=force)
     score, avg_car = access_score_single(property_id, user.id)
-    return {"milestones": rows, "access_score": score, "avg_car_minutes": avg_car}
+    return {
+        "milestones": rows,
+        "access_score": score["typical"] if score else None,
+        "access_peak": score["peak"] if score else None,
+        "access_offpeak": score["offpeak"] if score else None,
+        "avg_car_minutes": avg_car,
+    }

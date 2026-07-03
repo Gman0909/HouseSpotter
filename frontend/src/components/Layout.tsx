@@ -47,7 +47,7 @@ export default function Layout({ children }: { children: ReactNode }) {
       </aside>
 
       {/* Main */}
-      <main className="min-h-0 flex-1 overflow-y-auto pb-20 md:pb-0">{children}</main>
+      <main id="hs-main" className="min-h-0 flex-1 overflow-y-auto pb-20 md:pb-0">{children}</main>
 
       {/* Bottom nav (mobile) */}
       <nav className="fixed inset-x-0 bottom-0 z-40 flex justify-around border-t border-stone-200 bg-white/95 py-1.5 backdrop-blur md:hidden dark:border-stone-800 dark:bg-stone-900/95">

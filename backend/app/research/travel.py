@@ -28,6 +28,11 @@ ROUTE_FACTOR = 1.3  # crow-flies → typical road distance
 BEST_MIN, WORST_MIN = 8.0, 45.0
 BASE_SPAN = WORST_MIN - BEST_MIN  # 37 min
 
+# Traffic modelling: ORS routes on static OSM speeds (no live traffic), so peak and
+# off-peak are modelled with typical UK urban congestion factors applied to drive times.
+PEAK_FACTOR, PEAK_EXTRA_MIN = 1.35, 2.0
+OFFPEAK_FACTOR = 0.85
+
 
 def _haversine_km(lat1, lng1, lat2, lng2) -> float:
     p1, p2 = math.radians(lat1), math.radians(lat2)
@@ -187,25 +192,31 @@ def access_scores(session: Session, property_ids: list[int], user_id: int) -> di
     cached = {(t.property_id, t.milestone_id): t.minutes for t in rows if t.provider == "ors"}
     baselines = _milestone_baselines(session)
 
-    scores: dict[int, int | None] = {}
+    scores: dict[int, dict | None] = {}
     for pid in property_ids:
         prop = session.get(Property, pid)
         if not prop or prop.lat is None:
             scores[pid] = None
             continue
-        total_w = acc = 0.0
+        total_w = 0.0
+        acc = {"typical": 0.0, "peak": 0.0, "offpeak": 0.0}
         for m in milestones:
             minutes = cached.get((pid, m.id))
             if minutes is None:
                 minutes, _ = estimate(prop.lat, prop.lng, m.lat, m.lng, "car")
-            acc += m.weight * _curve(minutes, baselines.get(m.id))
+            baseline = baselines.get(m.id)
+            acc["typical"] += m.weight * _curve(minutes, baseline)
+            acc["peak"] += m.weight * _curve(minutes * PEAK_FACTOR + PEAK_EXTRA_MIN, baseline)
+            acc["offpeak"] += m.weight * _curve(minutes * OFFPEAK_FACTOR, baseline)
             total_w += m.weight
-        scores[pid] = round(100 * acc / total_w) if total_w else None
+        scores[pid] = (
+            {k: round(100 * v / total_w) for k, v in acc.items()} if total_w else None
+        )
     return scores
 
 
-def access_score_single(property_id: int, user_id: int | None) -> tuple[int | None, float | None]:
-    """(score, weighted avg car minutes) for one property — used by match scoring."""
+def access_score_single(property_id: int, user_id: int | None) -> tuple[dict | None, float | None]:
+    """({typical, peak, offpeak}, weighted avg car minutes) — used by scoring + the panel."""
     with Session(engine) as session:
         milestones = session.exec(select(Milestone).where(Milestone.user_id == user_id)).all()
         if not milestones:
@@ -220,15 +231,19 @@ def access_score_single(property_id: int, user_id: int | None) -> tuple[int | No
         ).all()
         cached = {t.milestone_id: t.minutes for t in rows if t.provider == "ors" and t.minutes is not None}
         baselines = _milestone_baselines(session)
-        total_w = acc = mins_acc = 0.0
+        total_w = mins_acc = 0.0
+        acc = {"typical": 0.0, "peak": 0.0, "offpeak": 0.0}
         for m in milestones:
             minutes = cached.get(m.id)
             if minutes is None:
                 minutes, _ = estimate(prop.lat, prop.lng, m.lat, m.lng, "car")
-            acc += m.weight * _curve(minutes, baselines.get(m.id))
+            baseline = baselines.get(m.id)
+            acc["typical"] += m.weight * _curve(minutes, baseline)
+            acc["peak"] += m.weight * _curve(minutes * PEAK_FACTOR + PEAK_EXTRA_MIN, baseline)
+            acc["offpeak"] += m.weight * _curve(minutes * OFFPEAK_FACTOR, baseline)
             mins_acc += m.weight * minutes
             total_w += m.weight
-        return round(100 * acc / total_w), round(mins_acc / total_w)
+        return {k: round(100 * v / total_w) for k, v in acc.items()}, round(mins_acc / total_w)
 
 
 # --- Nightly batch: real car times for all live properties ---

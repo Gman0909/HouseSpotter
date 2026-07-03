@@ -52,7 +52,7 @@ export default function TravelPanel({
   }
   if (!travel.data || travel.data.milestones.length === 0) return null
 
-  const { milestones, access_score } = travel.data
+  const { milestones, access_score, access_peak, access_offpeak } = travel.data
   const anyEstimate = milestones.some((m) =>
     Object.values(m.modes).some((mode: TravelMode) => mode.provider === 'estimate'),
   )
@@ -76,8 +76,16 @@ export default function TravelPanel({
         </h2>
         <div className="flex items-center gap-2.5">
           {access_score !== null && (
-            <span className="rounded-full bg-brand-100 px-2.5 py-1 text-xs font-bold text-brand-700 dark:bg-brand-900 dark:text-brand-300">
+            <span
+              className="rounded-full bg-brand-100 px-2.5 py-1 text-xs font-bold text-brand-700 dark:bg-brand-900 dark:text-brand-300"
+              title="Typical score, with modelled rush-hour (peak) and quiet-road (off-peak) variants"
+            >
               Access score {access_score}
+              {access_peak !== null && access_offpeak !== null && (
+                <span className="ml-1.5 font-medium opacity-75">
+                  · peak {access_peak} / off-peak {access_offpeak}
+                </span>
+              )}
             </span>
           )}
           <button
@@ -166,6 +174,10 @@ export default function TravelPanel({
           * distance-based estimate — real routed times appear once computed (nightly, or hit ↻).
         </p>
       )}
+      <p className="mt-1 text-[11px] text-stone-400">
+        Peak/off-peak are modelled from typical UK congestion (routing data carries no live
+        traffic): peak ≈ drive × 1.35 + 2 min, off-peak ≈ drive × 0.85.
+      </p>
     </section>
   )
 }

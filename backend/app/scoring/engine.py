@@ -74,7 +74,7 @@ def _milestone_access_check(prop: Property, listing: Listing, profile: SearchPro
     score, avg_car = access_score_single(prop.id, profile.user_id)
     if score is None:
         return 0.5, "no milestones set"
-    return score / 100, f"~{round(avg_car)} min drive to your places"
+    return score["typical"] / 100, f"~{round(avg_car)} min drive to your places"
 
 STRUCTURED_CHECKS = {
     "parking": (_keyword_check(["parking", "garage", "driveway", "off street", "off-street", "off road", "off-road", "carport"]), "Parking"),

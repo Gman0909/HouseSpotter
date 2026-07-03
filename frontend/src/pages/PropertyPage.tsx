@@ -1,5 +1,6 @@
 import { useParams, useSearchParams, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import { MapContainer, TileLayer, CircleMarker } from 'react-leaflet'
 import { ArrowLeft, ExternalLink, MapPin } from 'lucide-react'
 import { api } from '../lib/api'
 import type { PropertyDetail } from '../lib/types'
@@ -71,15 +72,6 @@ export default function PropertyPage() {
         </div>
         <div className="flex items-center gap-3">
           {match && <ScoreRing score={match.score} size={64} />}
-          <a
-            href={gmapsUrl}
-            target="_blank"
-            rel="noreferrer"
-            title={property.lat != null ? 'Open location in Google Maps' : 'Approximate location (address lookup) in Google Maps'}
-            className="flex items-center gap-1.5 rounded-lg border border-stone-300 px-3.5 py-2 text-sm font-semibold hover:bg-stone-100 dark:border-stone-700 dark:hover:bg-stone-800"
-          >
-            <MapPin size={15} /> Maps
-          </a>
           <AddToListButton propertyId={property.id} />
           {live && (
             <a
@@ -127,6 +119,45 @@ export default function PropertyPage() {
           </p>
         </section>
       )}
+
+      <section className="mt-6 rounded-2xl border border-stone-200 bg-white p-5 dark:border-stone-800 dark:bg-stone-900">
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <h2 className="font-semibold">Map</h2>
+          <a
+            href={gmapsUrl}
+            target="_blank"
+            rel="noreferrer"
+            title={property.lat != null ? 'Open this location in Google Maps' : 'Approximate location (address lookup) in Google Maps'}
+            className="flex items-center gap-1.5 rounded-lg border border-stone-300 px-3.5 py-1.5 text-sm font-semibold hover:bg-stone-100 dark:border-stone-700 dark:hover:bg-stone-800"
+          >
+            <MapPin size={14} /> Open in Maps
+          </a>
+        </div>
+        {property.lat != null && property.lng != null ? (
+          <div className="h-72 overflow-hidden rounded-xl">
+            <MapContainer
+              center={[property.lat, property.lng]}
+              zoom={15}
+              className="h-full w-full"
+              scrollWheelZoom={false}
+            >
+              <TileLayer
+                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+              />
+              <CircleMarker
+                center={[property.lat, property.lng]}
+                radius={10}
+                pathOptions={{ color: '#fff', weight: 2, fillColor: '#2b6e5a', fillOpacity: 0.95 }}
+              />
+            </MapContainer>
+          </div>
+        ) : (
+          <p className="text-sm text-stone-400">
+            No precise coordinates for this listing — "Open in Maps" searches the address instead.
+          </p>
+        )}
+      </section>
 
       {property.features.length > 0 && (
         <section className="mt-6 rounded-2xl border border-stone-200 bg-white p-5 dark:border-stone-800 dark:bg-stone-900">
