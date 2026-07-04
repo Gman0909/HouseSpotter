@@ -41,6 +41,12 @@ Do not reuse an existing profile's name for it.
 
 If it's ambiguous whether the user wants to modify or add, ask before calling the tool.
 
+Assistant turns in this conversation may carry a note like "[saved search profile \
+id=N ...]" — that profile was created or updated BY YOU earlier in THIS conversation. \
+Any further tweaks the user asks for to that search ("also add a garage", "make it \
+£450k", "yes" to an offer of extras) are ALWAYS operation 1: call the tool WITH \
+profile_id=N. Never create a second profile for a search you already saved here.
+
 Structured must_have/nice_to_have keys you may use: parking, garden, garage, chain_free, \
 new_build, ensuite, epc_c, value, extra_beds, near_station (close to train links generally — \
 use when they mention trains, stations or commuting by rail; NEVER tied to a named station), \
@@ -275,7 +281,15 @@ def intake_turn(session: Session, session_id: str, text: str, user: User) -> dic
         .where(ChatMessage.session_id == session_id, ChatMessage.user_id == user.id)
         .order_by(ChatMessage.id)
     ).all()
-    messages = [{"role": m.role, "content": m.content} for m in history]
+    # Tool exchanges aren't persisted, so replayed history must carry the save
+    # outcome explicitly — otherwise a follow-up turn can't know the profile id it
+    # created and will duplicate instead of update (the safe-but-annoying failure).
+    messages = []
+    for m in history:
+        content = m.content
+        if m.role == "assistant" and m.profile_id:
+            content += f"\n\n[saved search profile id={m.profile_id} — pass profile_id={m.profile_id} to update this search]"
+        messages.append({"role": m.role, "content": content})
     messages.append({"role": "user", "content": text})
 
     session.add(ChatMessage(session_id=session_id, role="user", content=text, user_id=user.id))

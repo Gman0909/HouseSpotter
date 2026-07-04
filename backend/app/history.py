@@ -16,11 +16,13 @@ EDITABLE_FIELDS = {
     "name", "mode", "active", "min_price", "max_price", "min_beds", "max_beds",
     "min_baths", "property_types", "tenures", "locations", "must_haves",
     "nice_to_haves", "exclusions", "min_floor_area", "commutes", "qol_weights",
-    "brief", "alert_threshold", "alert_channels", "alert_digest", "quiet_hours",
+    "brief", "alert_threshold", "alert_min_access", "alert_channels", "alert_digest",
+    "quiet_hours",
 }
 # Changes to these invalidate cached match scores (bump criteria_version).
 CRITERIA_FIELDS = EDITABLE_FIELDS - {
-    "name", "active", "alert_threshold", "alert_channels", "alert_digest", "quiet_hours",
+    "name", "active", "alert_threshold", "alert_min_access", "alert_channels",
+    "alert_digest", "quiet_hours",
 }
 
 SNAPSHOTS_KEPT = 50

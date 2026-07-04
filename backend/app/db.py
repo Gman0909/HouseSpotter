@@ -7,7 +7,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 from .config import settings
 from .models import Meta, User  # noqa: F401 — import registers all models
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 engine = create_engine(
     f"sqlite:///{settings.db_path}",
@@ -167,11 +167,22 @@ def _migrate_v5_portal_filters(session: Session) -> None:
     session.commit()
 
 
+def _migrate_v6_alert_min_access(session: Session) -> None:
+    from sqlalchemy.exc import OperationalError
+
+    try:
+        session.exec(text("ALTER TABLE searchprofile ADD COLUMN alert_min_access INTEGER DEFAULT 0"))
+    except OperationalError:
+        pass  # column already exists (fresh install via create_all)
+    session.commit()
+
+
 MIGRATIONS: dict[int, list] = {
     2: [_migrate_v2_area_searches],
     3: [_migrate_v3_baseline_snapshots],
     4: [_migrate_v4_multi_user],
     5: [_migrate_v5_portal_filters],
+    6: [_migrate_v6_alert_min_access],
 }
 
 

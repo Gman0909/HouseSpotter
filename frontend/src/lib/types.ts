@@ -20,6 +20,7 @@ export interface Profile {
   qol_weights: Record<string, number>
   brief: string
   alert_threshold: number
+  alert_min_access: number
   alert_channels: string[]
   alert_digest: boolean
   quiet_hours: { start: string; end: string } | null

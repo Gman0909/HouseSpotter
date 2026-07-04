@@ -54,7 +54,8 @@ class SearchProfile(SQLModel, table=True):
     # free-text summary of what the user asked for (from intake chat)
     brief: str = Field(default="", sa_column=Column(Text))
 
-    alert_threshold: int = 70
+    alert_threshold: int = 70  # min requirements-match score to alert on
+    alert_min_access: int = 0  # min Milestone Access Score to alert on (0 = off)
     alert_channels: list = Field(default_factory=lambda: ["telegram"], sa_column=Column(JSON))
     alert_digest: bool = False  # False = instant
     quiet_hours: Optional[dict] = Field(default=None, sa_column=Column(JSON))  # {"start":"22:00","end":"08:00"}

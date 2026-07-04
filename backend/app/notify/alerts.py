@@ -86,8 +86,17 @@ def _pending_matches(session: Session, profile: SearchProfile, channel: str) -> 
                 Listing.status != "removed",
             )
         ).first()
-        if prop and listing:
-            out.append((prop, listing, match))
+        if not (prop and listing):
+            continue
+        # Access-score threshold: only enforceable when the owner has milestones
+        # (no milestones → score is None → the threshold is ignored, not a blocker)
+        if profile.alert_min_access:
+            from ..research.travel import access_score_single
+
+            access, _ = access_score_single(prop.id, profile.user_id)
+            if access is not None and access["typical"] < profile.alert_min_access:
+                continue
+        out.append((prop, listing, match))
     return out
 
 

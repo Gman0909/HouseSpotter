@@ -398,21 +398,48 @@ export default function SettingsPage() {
             </div>
           </Row>
 
-          <Row label="Alert threshold">
-            <div className="flex items-center gap-3">
-              <input
-                type="range"
-                min={0}
-                max={100}
-                key={`thr-${profile.id}`}
-                defaultValue={profile.alert_threshold}
-                onMouseUp={(e) => save.mutate({ alert_threshold: +(e.target as HTMLInputElement).value })}
-                onTouchEnd={(e) => save.mutate({ alert_threshold: +(e.target as HTMLInputElement).value })}
-                className="accent-brand-600"
-              />
-              <span className="text-sm font-medium">{profile.alert_threshold}+</span>
+          <div className="border-t border-stone-200 pt-3 dark:border-stone-800">
+            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-stone-400">
+              Alert thresholds
+            </h3>
+            <div className="space-y-4">
+              <Row label="Requirements match">
+                <div className="flex items-center gap-3" title="Only alert on properties whose match score is at least this">
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    key={`thr-${profile.id}`}
+                    defaultValue={profile.alert_threshold}
+                    onMouseUp={(e) => save.mutate({ alert_threshold: +(e.target as HTMLInputElement).value })}
+                    onTouchEnd={(e) => save.mutate({ alert_threshold: +(e.target as HTMLInputElement).value })}
+                    className="accent-brand-600"
+                  />
+                  <span className="w-10 text-right text-sm font-medium">{profile.alert_threshold}+</span>
+                </div>
+              </Row>
+              <Row label="Access score">
+                <div
+                  className="flex items-center gap-3"
+                  title="Only alert on properties whose Milestone Access Score is at least this (ignored until you have milestones)"
+                >
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    key={`acc-${profile.id}`}
+                    defaultValue={profile.alert_min_access ?? 0}
+                    onMouseUp={(e) => save.mutate({ alert_min_access: +(e.target as HTMLInputElement).value })}
+                    onTouchEnd={(e) => save.mutate({ alert_min_access: +(e.target as HTMLInputElement).value })}
+                    className="accent-brand-600"
+                  />
+                  <span className="w-10 text-right text-sm font-medium">
+                    {profile.alert_min_access ? `${profile.alert_min_access}+` : 'off'}
+                  </span>
+                </div>
+              </Row>
             </div>
-          </Row>
+          </div>
           <Row label="Alert channels">
             <div className="flex gap-2">
               {(['telegram', 'email'] as const).map((ch) => {
