@@ -1,16 +1,21 @@
-"""Alert logic: new matches over threshold → Telegram/email, deduped by the Notification
-ledger; price-drop alerts for saved properties. Called at the end of every poll cycle."""
+"""Alert logic: new matches over BOTH thresholds → Telegram/email, deduped by the
+Notification ledger; price-drop alerts for saved and matched properties. New-match
+alerts only cover properties still 'new' (recent + unviewed by the owner) — anything
+older or already seen can only come back as a clearly-labelled price drop."""
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from sqlmodel import Session, select
 
 from ..db import session_scope
 from ..models import (
-    Listing, ListItem, MatchScore, Notification, Property, SavedList, SearchProfile, User,
+    Listing, ListItem, MatchScore, Notification, Property, PropertyView, SavedList,
+    SearchProfile, User, utcnow,
 )
 from .channels import send_email, send_telegram
+
+NEW_WINDOW_HOURS = 48  # matches the frontend's "New" badge window
 
 log = logging.getLogger("housespotter.notify")
 
@@ -65,7 +70,33 @@ def send_alerts_for_new_matches() -> None:
             log.exception("Alerting failed for profile %s", profile_id)
 
 
-def _pending_matches(session: Session, profile: SearchProfile, channel: str) -> list[tuple[Property, Listing, MatchScore]]:
+def _access_typical(property_id: int, user_id: int | None) -> int | None:
+    from ..research.travel import access_score_single
+
+    access, _ = access_score_single(property_id, user_id)
+    return access["typical"] if access else None
+
+
+def _meets_thresholds(profile: SearchProfile, score: float, access: int | None) -> bool:
+    """BOTH thresholds must pass. The access gate only applies when an access score
+    exists (owner has milestones) — otherwise it is ignored, not a blocker."""
+    if score < profile.alert_threshold:
+        return False
+    if profile.alert_min_access and access is not None and access < profile.alert_min_access:
+        return False
+    return True
+
+
+def _is_new(listing: Listing) -> bool:
+    fs = listing.first_seen
+    if fs.tzinfo is None:
+        fs = fs.replace(tzinfo=timezone.utc)
+    return fs >= utcnow() - timedelta(hours=NEW_WINDOW_HOURS)
+
+
+def _pending_matches(
+    session: Session, profile: SearchProfile, channel: str
+) -> list[tuple[Property, Listing, MatchScore, int | None]]:
     matches = session.exec(
         select(MatchScore).where(
             MatchScore.profile_id == profile.id,
@@ -74,9 +105,19 @@ def _pending_matches(session: Session, profile: SearchProfile, channel: str) -> 
             MatchScore.score >= profile.alert_threshold,
         )
     ).all()
+    viewed_ids = {
+        v.property_id
+        for v in session.exec(
+            select(PropertyView).where(PropertyView.user_id == profile.user_id)
+        ).all()
+    }
     out = []
     for match in matches:
         if _already_sent(session, match.property_id, profile.id, channel, "new_match"):
+            continue
+        # Only genuinely NEW properties get new-match alerts: recent first-seen and
+        # not yet viewed by the owner. Older/seen stock can only alert on price drops.
+        if match.property_id in viewed_ids:
             continue
         prop = session.get(Property, match.property_id)
         listing = session.exec(
@@ -86,17 +127,12 @@ def _pending_matches(session: Session, profile: SearchProfile, channel: str) -> 
                 Listing.status != "removed",
             )
         ).first()
-        if not (prop and listing):
+        if not (prop and listing) or not _is_new(listing):
             continue
-        # Access-score threshold: only enforceable when the owner has milestones
-        # (no milestones → score is None → the threshold is ignored, not a blocker)
-        if profile.alert_min_access:
-            from ..research.travel import access_score_single
-
-            access, _ = access_score_single(prop.id, profile.user_id)
-            if access is not None and access["typical"] < profile.alert_min_access:
-                continue
-        out.append((prop, listing, match))
+        access = _access_typical(prop.id, profile.user_id)
+        if not _meets_thresholds(profile, match.score, access):
+            continue
+        out.append((prop, listing, match, access))
     return out
 
 
@@ -115,23 +151,30 @@ def _alerts_for_profile(profile_id: int) -> None:
             if profile.alert_digest:
                 ok = _send_digest(channel, profile, pending, owner)
                 if ok:
-                    for prop, _, _ in pending:
+                    for prop, _, _, _ in pending:
                         _record(session, prop.id, profile.id, channel, "new_match")
             else:
-                for prop, listing, match in pending:
-                    ok = _send_single(channel, profile, prop, listing, match, owner)
+                for prop, listing, match, access in pending:
+                    ok = _send_single(channel, profile, prop, listing, match, owner, access)
                     if ok:
                         _record(session, prop.id, profile.id, channel, "new_match")
 
 
-def _send_single(channel: str, profile: SearchProfile, prop: Property, listing: Listing, match: MatchScore, owner: User | None = None) -> bool:
+def _score_line(match_score: float, access: int | None) -> str:
+    line = f"⭐ Match {round(match_score)}"
+    if access is not None:
+        line += f" · ⚡ Access {access}"
+    return line
+
+
+def _send_single(channel: str, profile: SearchProfile, prop: Property, listing: Listing, match: MatchScore, owner: User | None = None, access: int | None = None) -> bool:
     chat_id = owner.telegram_chat_id if owner and owner.telegram_chat_id else None
     email_to = owner.email_to if owner and owner.email_to else None
     price = _fmt_price(listing.price, listing.mode)
     if channel == "telegram":
         caption = (
             f"🏡 <b>{price}</b> — {prop.address}\n"
-            f"⭐ Match score {round(match.score)} for “{profile.name}”\n"
+            f"{_score_line(match.score, access)} for “{profile.name}”\n"
             f"{prop.beds or '?'} bed {prop.property_type or 'property'}"
             + (f" · EPC {prop.epc}" if prop.epc else "")
             + f"\n{match.rationale}\n{listing.url}"
@@ -142,7 +185,7 @@ def _send_single(channel: str, profile: SearchProfile, prop: Property, listing: 
         img = f'<img src="{prop.image_urls[0]}" style="max-width:480px;border-radius:12px"><br>' if prop.image_urls else ""
         body = (
             f"{img}<h2 style='margin:8px 0'>{price} — {prop.address}</h2>"
-            f"<p><b>Match score {round(match.score)}</b> for “{profile.name}”<br>"
+            f"<p><b>{_score_line(match.score, access)}</b> for “{profile.name}”<br>"
             f"{prop.beds or '?'} bed {prop.property_type or 'property'}</p>"
             f"<p>{match.rationale}</p>"
             f"<p><a href='{listing.url}'>View on {listing.portal}</a></p>"
@@ -155,11 +198,12 @@ def _send_digest(channel: str, profile: SearchProfile, pending: list, owner: Use
     chat_id = owner.telegram_chat_id if owner and owner.telegram_chat_id else None
     email_to = owner.email_to if owner and owner.email_to else None
     lines_html, lines_tg = [], []
-    for prop, listing, match in pending[:20]:
+    for prop, listing, match, access in pending[:20]:
         price = _fmt_price(listing.price, listing.mode)
-        lines_tg.append(f"⭐{round(match.score)} — <b>{price}</b> {prop.address}\n{listing.url}")
+        scores = f"⭐{round(match.score)}" + (f" ⚡{access}" if access is not None else "")
+        lines_tg.append(f"{scores} — <b>{price}</b> {prop.address}\n{listing.url}")
         lines_html.append(
-            f"<li><b>{price}</b> — {prop.address} (score {round(match.score)}) "
+            f"<li><b>{price}</b> — {prop.address} ({scores}) "
             f"<a href='{listing.url}'>view</a></li>"
         )
     title = f"{len(pending)} new matches for “{profile.name}”"
@@ -171,7 +215,11 @@ def _send_digest(channel: str, profile: SearchProfile, pending: list, owner: Use
 
 
 def _price_drops_for_profile(profile_id: int) -> None:
-    """Alert when a saved property's price drops (once per price point)."""
+    """Alert on price drops (once per price point) for:
+    - properties the owner saved to a list (explicit interest — no threshold gate), and
+    - matched properties meeting BOTH alert thresholds (these may be old or already
+      viewed — a price drop is the one event that brings them back, clearly labelled).
+    """
     with session_scope() as session:
         profile = session.get(SearchProfile, profile_id)
         if not profile or _in_quiet_hours(profile):
@@ -186,9 +234,19 @@ def _price_drops_for_profile(profile_id: int) -> None:
             i.property_id for i in session.exec(select(ListItem)).all()
             if i.list_id in owner_list_ids
         }
-        if not saved_ids:
-            return
-        for property_id in saved_ids:
+        match_by_prop = {
+            m.property_id: m
+            for m in session.exec(
+                select(MatchScore).where(
+                    MatchScore.profile_id == profile.id,
+                    MatchScore.criteria_version == profile.criteria_version,
+                    MatchScore.passed_filters == True,  # noqa: E712
+                    MatchScore.score >= profile.alert_threshold,
+                )
+            ).all()
+        }
+        candidates = saved_ids | set(match_by_prop)
+        for property_id in candidates:
             listing = session.exec(
                 select(Listing).where(
                     Listing.property_id == property_id,
@@ -201,15 +259,24 @@ def _price_drops_for_profile(profile_id: int) -> None:
             last, prev = listing.price_history[-1], listing.price_history[-2]
             if last["price"] >= prev["price"]:
                 continue
+            match = match_by_prop.get(property_id)
+            access = _access_typical(property_id, profile.user_id)
+            saved = property_id in saved_ids
+            # Threshold gate for match-driven drops; saved properties are exempt
+            if not saved and (not match or not _meets_thresholds(profile, match.score, access)):
+                continue
             kind = f"price_drop:{last['price']}"
             prop = session.get(Property, property_id)
+            head = "📉 Price drop on a saved property" if saved else f"📉 Price drop on a match for “{profile.name}”"
+            scores = _score_line(match.score, access) if match else (f"⚡ Access {access}" if access is not None else "")
             for channel in profile.alert_channels or []:
                 if _already_sent(session, property_id, profile.id, channel, kind):
                     continue
                 msg = (
-                    f"📉 Price drop on a saved property\n<b>{prop.address}</b>\n"
-                    f"{_fmt_price(prev['price'], listing.mode)} → <b>{_fmt_price(last['price'], listing.mode)}</b>\n"
-                    f"{listing.url}"
+                    f"{head}\n<b>{prop.address}</b>\n"
+                    f"{_fmt_price(prev['price'], listing.mode)} → <b>{_fmt_price(last['price'], listing.mode)}</b>"
+                    + (f"\n{scores}" if scores else "")
+                    + f"\n{listing.url}"
                 )
                 ok = send_telegram(
                     msg, chat_id=(owner.telegram_chat_id if owner and owner.telegram_chat_id else None)
