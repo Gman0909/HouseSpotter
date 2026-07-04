@@ -136,6 +136,14 @@ export interface PropertyDetail {
     price_history: { date: string; price: number }[]
   }[]
   match: Match | null
+  area: {
+    code: string
+    name: string
+    scores: Record<string, number>
+    narrative: string
+    listing_stats: Record<string, number>
+    refreshed_at: string
+  } | null
 }
 
 export interface SavedListInfo {

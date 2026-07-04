@@ -33,7 +33,7 @@ export default function PropertyPage() {
   if (detail.isLoading) return <div className="p-6 text-sm text-stone-500">Loading…</div>
   if (!detail.data) return <div className="p-6 text-sm text-stone-500">Not found.</div>
 
-  const { property, listings, match } = detail.data
+  const { property, listings, match, area } = detail.data
   const live = listings.find((l) => l.status !== 'removed') ?? listings[0]
 
   // Precise pin when we have coordinates; otherwise Google's best guess at the address
@@ -217,8 +217,62 @@ export default function PropertyPage() {
           </ul>
         </section>
       )}
+
+      {area && (
+        <section className="mt-6 rounded-2xl border border-stone-200 bg-white p-5 dark:border-stone-800 dark:bg-stone-900">
+          <div className="mb-1 flex items-start justify-between gap-3">
+            <div>
+              <h2 className="font-semibold">
+                About the area — {area.name || area.code}{' '}
+                <span className="text-sm font-normal text-stone-400">({area.code})</span>
+              </h2>
+              <p className="text-xs text-stone-400">
+                {area.listing_stats?.median_price
+                  ? `median £${Number(area.listing_stats.median_price).toLocaleString('en-GB')} · `
+                  : ''}
+                from your area research
+              </p>
+            </div>
+            <div className="shrink-0 text-right">
+              <span className="text-2xl font-bold text-brand-600">
+                {Math.round((area.scores?.total ?? 0) * 100)}
+              </span>
+              <span className="text-xs text-stone-400"> / 100</span>
+            </div>
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1.5 sm:grid-cols-3">
+            {Object.entries(AREA_SUBSCORES).map(([key, label]) =>
+              area.scores?.[key] !== undefined ? (
+                <div key={key} className="flex items-center gap-2 text-xs">
+                  <span className="w-20 shrink-0 text-stone-500">{label}</span>
+                  <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-stone-200 dark:bg-stone-700">
+                    <div
+                      className="h-full rounded-full bg-brand-500"
+                      style={{ width: `${(area.scores[key] ?? 0) * 100}%` }}
+                    />
+                  </div>
+                </div>
+              ) : null,
+            )}
+          </div>
+          {area.narrative && (
+            <p className="mt-3 whitespace-pre-line text-[15px] leading-relaxed text-stone-700 dark:text-stone-300">
+              {area.narrative}
+            </p>
+          )}
+        </section>
+      )}
     </div>
   )
+}
+
+const AREA_SUBSCORES: Record<string, string> = {
+  transport: 'Transport',
+  safety: 'Safety',
+  amenities: 'Amenities',
+  green: 'Green space',
+  schools: 'Schools',
+  affordability: 'Affordability',
 }
 
 function Badge({ children }: { children: React.ReactNode }) {

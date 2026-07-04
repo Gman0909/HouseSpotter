@@ -148,10 +148,41 @@ def get_property(property_id: int, profile_id: int | None = None, session: Sessi
                     MatchScore.criteria_version == profile.criteria_version,
                 )
             ).first()
+    # Area research card, when this outcode has been researched by any of the
+    # user's area searches (freshest result wins)
+    area = None
+    if prop.outcode:
+        from ..models import AreaResult, AreaSearch
+
+        profile_ids = [
+            pr.id
+            for pr in session.exec(
+                select(SearchProfile).where(SearchProfile.user_id == user.id)
+            ).all()
+        ]
+        if profile_ids:
+            search_ids = [
+                srch.id
+                for srch in session.exec(
+                    select(AreaSearch).where(AreaSearch.profile_id.in_(profile_ids))
+                ).all()
+            ]
+            if search_ids:
+                results = session.exec(
+                    select(AreaResult).where(
+                        AreaResult.code == prop.outcode,
+                        AreaResult.area_search_id.in_(search_ids),
+                    )
+                ).all()
+                if results:
+                    freshest = max(results, key=lambda a: a.refreshed_at or a.id)
+                    area = freshest.model_dump()
+
     return {
         "property": prop,
         "listings": listings,
         "match": match,
+        "area": area,
     }
 
 
