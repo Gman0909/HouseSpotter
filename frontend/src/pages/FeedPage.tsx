@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { LayoutGrid, Loader2, Map as MapIcon, RefreshCw, X } from 'lucide-react'
+import { LayoutGrid, Loader2, Map as MapIcon, RefreshCw, Sparkles, X } from 'lucide-react'
 import { api } from '../lib/api'
 import type { Profile, PropertyCard } from '../lib/types'
 import PropertyCardView from '../components/PropertyCardView'
@@ -44,7 +44,13 @@ const SORTS = [
 const FEED_STATE_KEY = 'hs-feed-state'
 const FEED_SCROLL_KEY = 'hs-feed-scroll'
 
-function loadFeedState(): { sort?: string; view?: 'grid' | 'map'; profileId?: number | null; area?: string | null } {
+function loadFeedState(): {
+  sort?: string
+  view?: 'grid' | 'map'
+  profileId?: number | null
+  area?: string | null
+  onlyNew?: boolean
+} {
   try {
     return JSON.parse(sessionStorage.getItem(FEED_STATE_KEY) ?? '{}')
   } catch {
@@ -52,11 +58,21 @@ function loadFeedState(): { sort?: string; view?: 'grid' | 'map'; profileId?: nu
   }
 }
 
+const NEW_WINDOW_MS = 48 * 3600 * 1000
+
+// A card counts as "new" the same way its badge does: recently first-seen and unviewed
+function isNewCard(card: PropertyCard): boolean {
+  if (card.viewed) return false
+  if (!card.first_seen) return false
+  return Date.now() - new Date(card.first_seen).getTime() < NEW_WINDOW_MS
+}
+
 export default function FeedPage() {
   const stored = loadFeedState()
   const [profileId, setProfileId] = useState<number | null>(stored.profileId ?? null)
   const [sort, setSort] = useState(stored.sort ?? 'score')
   const [view, setView] = useState<'grid' | 'map'>(stored.view ?? 'grid')
+  const [onlyNew, setOnlyNew] = useState<boolean>(stored.onlyNew ?? false)
   const [searchParams, setSearchParams] = useSearchParams()
   const urlArea = searchParams.get('area')
   const [areaFilter, setAreaFilter] = useState<string | null>(urlArea ?? stored.area ?? null)
@@ -75,9 +91,9 @@ export default function FeedPage() {
   useEffect(() => {
     sessionStorage.setItem(
       FEED_STATE_KEY,
-      JSON.stringify({ sort, view, profileId, area: areaFilter }),
+      JSON.stringify({ sort, view, profileId, area: areaFilter, onlyNew }),
     )
-  }, [sort, view, profileId, areaFilter])
+  }, [sort, view, profileId, areaFilter, onlyNew])
 
   // Scroll persistence: save as the user scrolls, restore once the feed has rendered
   const restoredScroll = useRef(false)
@@ -137,6 +153,10 @@ export default function FeedPage() {
   })
   const savedSet = new Set(savedIds.data ?? [])
 
+  const allItems = feed.data?.items ?? []
+  const newCount = allItems.filter(isNewCard).length
+  const items = onlyNew ? allItems.filter(isNewCard) : allItems
+
   return (
     <div className="mx-auto max-w-7xl p-4 md:p-6">
       <header className="mb-5 flex flex-wrap items-center justify-between gap-3">
@@ -154,7 +174,11 @@ export default function FeedPage() {
             )}
           </div>
           <p className="text-sm text-stone-500">
-            {feed.data ? `${feed.data.total} matching properties` : 'Loading…'}
+            {feed.data
+              ? onlyNew
+                ? `${items.length} new of ${feed.data.total}`
+                : `${feed.data.total} matching properties`
+              : 'Loading…'}
             {!scanning && scan.data?.finished_at && (
               <span className="text-stone-400"> · last scan {ago(scan.data.finished_at)}</span>
             )}
@@ -172,6 +196,26 @@ export default function FeedPage() {
           >
             {scanning ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
             {scanning ? 'Scanning…' : 'Scan now'}
+          </button>
+          <button
+            onClick={() => setOnlyNew((v) => !v)}
+            title="Show only new, unseen listings (added in the last 48h)"
+            className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
+              onlyNew
+                ? 'border-brand-600 bg-brand-600 text-white'
+                : 'border-stone-300 bg-white text-stone-600 hover:bg-stone-50 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-300'
+            }`}
+          >
+            <Sparkles size={13} /> Only new
+            {newCount > 0 && (
+              <span
+                className={`rounded-full px-1.5 text-[10px] ${
+                  onlyNew ? 'bg-white/25' : 'bg-brand-100 text-brand-700 dark:bg-brand-900 dark:text-brand-300'
+                }`}
+              >
+                {newCount}
+              </span>
+            )}
           </button>
           {profiles.data && profiles.data.length > 0 && (
             <select
@@ -265,11 +309,20 @@ export default function FeedPage() {
         </div>
       )}
 
+      {onlyNew && feed.data && items.length === 0 && allItems.length > 0 && (
+        <div className="rounded-2xl border border-dashed border-stone-300 p-10 text-center text-sm text-stone-500 dark:border-stone-700">
+          Nothing new right now — every match here has been seen before.{' '}
+          <button onClick={() => setOnlyNew(false)} className="font-semibold text-brand-600 hover:underline">
+            Show all {allItems.length}
+          </button>
+        </div>
+      )}
+
       {view === 'map' && feed.data ? (
-        <MapView cards={feed.data.items} profileId={activeProfile?.id} />
+        <MapView cards={items} profileId={activeProfile?.id} savedSet={savedSet} />
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {feed.data?.items.map((card) => (
+          {items.map((card) => (
             <PropertyCardView
               key={card.id}
               card={card}

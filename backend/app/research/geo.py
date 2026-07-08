@@ -62,6 +62,56 @@ def geocode_place(label: str) -> tuple[float, float] | None:
     return lat, lng
 
 
+def geocode_postcode(postcode: str) -> tuple[float, float] | None:
+    """Full UK postcode → (lat, lng) via postcodes.io. Cached; misses cached too."""
+    key = f"pc:{postcode.strip().lower().replace(' ', '')}"
+    cached = _cache_get(key)
+    if cached is not None:
+        if cached == "":
+            return None
+        lat, lng = cached.split(",")
+        return float(lat), float(lng)
+    try:
+        resp = httpx.get(
+            f"https://api.postcodes.io/postcodes/{postcode.strip()}",
+            headers={"User-Agent": USER_AGENT},
+            timeout=15,
+        )
+        result = resp.json().get("result") if resp.status_code == 200 else None
+    except Exception:
+        log.exception("postcodes.io lookup failed for %r", postcode)
+        return None
+    if not result or result.get("latitude") is None:
+        _cache_set(key, "")
+        return None
+    lat, lng = float(result["latitude"]), float(result["longitude"])
+    _cache_set(key, f"{lat},{lng}")
+    return lat, lng
+
+
+def reverse_district(lat: float, lng: float) -> str | None:
+    """(lat, lng) → admin district / town name via postcodes.io (for portals that
+    search by town slug). Cached to 3dp."""
+    key = f"district:{round(lat, 3)},{round(lng, 3)}"
+    cached = _cache_get(key)
+    if cached is not None:
+        return cached or None
+    try:
+        resp = httpx.get(
+            "https://api.postcodes.io/postcodes",
+            params={"lat": lat, "lon": lng, "limit": 1, "radius": 2000},
+            headers={"User-Agent": USER_AGENT},
+            timeout=15,
+        )
+        result = (resp.json().get("result") or []) if resp.status_code == 200 else []
+    except Exception:
+        log.exception("postcodes.io district lookup failed")
+        return None
+    district = result[0].get("admin_district") if result else None
+    _cache_set(key, district or "")
+    return district
+
+
 def reverse_outcode(lat: float, lng: float) -> str | None:
     """(lat, lng) → nearest outcode (e.g. 'GU15') via postcodes.io. Cached to 3dp."""
     key = f"outcode:{round(lat, 3)},{round(lng, 3)}"

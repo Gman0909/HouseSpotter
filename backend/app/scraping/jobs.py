@@ -22,9 +22,10 @@ PAUSE_HOURS = 6
 def get_adapters() -> list:
     from ..config import settings
     from .onthemarket import OnTheMarketAdapter
+    from .purplebricks import PurplebricksAdapter
     from .rightmove import RightmoveAdapter
 
-    adapters = [RightmoveAdapter(), OnTheMarketAdapter()]
+    adapters = [RightmoveAdapter(), OnTheMarketAdapter(), PurplebricksAdapter()]
     if settings.playwright_fallback:
         from .zoopla import ZooplaAdapter
 

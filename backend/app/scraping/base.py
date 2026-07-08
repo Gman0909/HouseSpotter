@@ -20,7 +20,9 @@ DEFAULT_HEADERS = {
     "User-Agent": USER_AGENT,
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
     "Accept-Language": "en-GB,en;q=0.9",
-    "Accept-Encoding": "gzip, deflate, br",
+    # Only advertise codecs httpx decodes natively — brotli ('br') needs an extra
+    # package and Purplebricks serves it, yielding undecodable bytes otherwise.
+    "Accept-Encoding": "gzip, deflate",
     "Upgrade-Insecure-Requests": "1",
     "Sec-Fetch-Dest": "document",
     "Sec-Fetch-Mode": "navigate",
@@ -75,6 +77,7 @@ PORTAL_MIN_INTERVAL: dict[str, tuple[float, float]] = {
     "rightmove": (4.0, 4.0),
     "zoopla": (5.0, 5.0),
     "onthemarket": (5.0, 5.0),
+    "purplebricks": (5.0, 5.0),
 }
 
 BLOCK_MARKERS = (

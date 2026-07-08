@@ -1,4 +1,5 @@
-import { MapContainer, TileLayer, CircleMarker, Popup, Tooltip } from 'react-leaflet'
+import { MapContainer, TileLayer, CircleMarker, Marker, Popup, Tooltip } from 'react-leaflet'
+import L from 'leaflet'
 import { Link } from 'react-router-dom'
 import { BedDouble, Bath } from 'lucide-react'
 import type { PropertyCard } from '../lib/types'
@@ -8,6 +9,21 @@ function scoreColor(score: number | null): string {
   if (score === null) return '#78716c'
   const hue = 8 + (Math.max(0, Math.min(100, score)) / 100) * 130
   return `hsl(${hue} 70% 42%)`
+}
+
+// Saved properties render as a heart (filled with the score colour so the map stays
+// informative); a Leaflet divIcon wrapping an inline SVG, anchored at its centre.
+function heartIcon(score: number | null): L.DivIcon {
+  const fill = scoreColor(score)
+  return L.divIcon({
+    className: 'hs-heart-marker',
+    html: `<svg width="26" height="26" viewBox="0 0 24 24" style="filter:drop-shadow(0 1px 1.5px rgba(0,0,0,.4))">
+      <path d="M12 21s-7.5-4.9-10-9.4C.4 8.4 1.9 5 5.2 5c2 0 3.3 1.1 4.1 2.2C10.1 8.3 11.4 9.4 12 9.4c.6 0 1.9-1.1 2.7-2.2C15.5 6.1 16.8 5 18.8 5c3.3 0 4.8 3.4 3.2 6.6C19.5 16.1 12 21 12 21z"
+        fill="${fill}" stroke="#fff" stroke-width="1.5"/>
+    </svg>`,
+    iconSize: [26, 26],
+    iconAnchor: [13, 13],
+  })
 }
 
 function HoverCard({ card }: { card: PropertyCard }) {
@@ -64,7 +80,15 @@ function HoverCard({ card }: { card: PropertyCard }) {
   )
 }
 
-export default function MapView({ cards, profileId }: { cards: PropertyCard[]; profileId?: number }) {
+export default function MapView({
+  cards,
+  profileId,
+  savedSet,
+}: {
+  cards: PropertyCard[]
+  profileId?: number
+  savedSet?: Set<number>
+}) {
   const located = cards.filter((c) => c.lat !== null && c.lng !== null)
   if (located.length === 0) {
     return (
@@ -83,47 +107,60 @@ export default function MapView({ cards, profileId }: { cards: PropertyCard[]; p
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
           url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
-        {located.map((card) => (
-          <CircleMarker
-            key={card.id}
-            center={[card.lat!, card.lng!]}
-            radius={9}
-            pathOptions={{
-              color: '#fff',
-              weight: 1.5,
-              fillColor: scoreColor(card.score),
-              fillOpacity: 0.9,
-            }}
-          >
-            {/* Hover card (desktop); click still opens the popup with a details link */}
-            <Tooltip direction="top" offset={[0, -10]} opacity={1} className="hs-hovercard">
-              <HoverCard card={card} />
-            </Tooltip>
-            <Popup>
-              <div className="min-w-40">
-                {card.image && (
-                  <img src={card.image} alt="" className="mb-1.5 h-20 w-full rounded object-cover" />
-                )}
-                <strong>{formatPrice(card)}</strong>
-                {card.score !== null && <span> · score {Math.round(card.score)}</span>}
-                <br />
-                <span className="text-xs">{card.address}</span>
-                <br />
-                <Link to={`/property/${card.id}${profileId ? `?profile=${profileId}` : ''}`}>
-                  Details →
-                </Link>
-                {' · '}
-                <a
-                  href={`https://www.google.com/maps/search/?api=1&query=${card.lat},${card.lng}`}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Google Maps
-                </a>
-              </div>
-            </Popup>
-          </CircleMarker>
-        ))}
+        {located.map((card) => {
+          const saved = savedSet?.has(card.id) ?? false
+          const overlays = (
+            <>
+              {/* Hover card (desktop); click still opens the popup with a details link */}
+              <Tooltip direction="top" offset={[0, saved ? -14 : -10]} opacity={1} className="hs-hovercard">
+                <HoverCard card={card} />
+              </Tooltip>
+              <Popup>
+                <div className="min-w-40">
+                  {card.image && (
+                    <img src={card.image} alt="" className="mb-1.5 h-20 w-full rounded object-cover" />
+                  )}
+                  {saved && <span className="text-xs font-semibold text-rose-500">♥ Saved · </span>}
+                  <strong>{formatPrice(card)}</strong>
+                  {card.score !== null && <span> · score {Math.round(card.score)}</span>}
+                  <br />
+                  <span className="text-xs">{card.address}</span>
+                  <br />
+                  <Link to={`/property/${card.id}${profileId ? `?profile=${profileId}` : ''}`}>
+                    Details →
+                  </Link>
+                  {' · '}
+                  <a
+                    href={`https://www.google.com/maps/search/?api=1&query=${card.lat},${card.lng}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Google Maps
+                  </a>
+                </div>
+              </Popup>
+            </>
+          )
+          return saved ? (
+            <Marker key={card.id} position={[card.lat!, card.lng!]} icon={heartIcon(card.score)}>
+              {overlays}
+            </Marker>
+          ) : (
+            <CircleMarker
+              key={card.id}
+              center={[card.lat!, card.lng!]}
+              radius={9}
+              pathOptions={{
+                color: '#fff',
+                weight: 1.5,
+                fillColor: scoreColor(card.score),
+                fillOpacity: 0.9,
+              }}
+            >
+              {overlays}
+            </CircleMarker>
+          )
+        })}
       </MapContainer>
     </div>
   )

@@ -1,7 +1,7 @@
 # HouseSpotter 🏡
 
 A personal, self-hosted UK property scout. Set up a search in plain forms (or describe it
-to the optional AI agent); HouseSpotter continuously watches Rightmove and OnTheMarket
+to the optional AI agent); HouseSpotter continuously watches Rightmove, OnTheMarket and Purplebricks
 (Zoopla optional), scores every listing against your criteria with a transparent 0–100
 match score, researches the best neighbourhoods for your budget, and pings you on
 Telegram/email the moment something good appears.
@@ -129,7 +129,7 @@ Bootstrap-only `.env` values:
 
 ```
 backend/app/
-  scraping/    portal adapters (rightmove, onthemarket, zoopla) + normalizer + scheduler jobs
+  scraping/    portal adapters (rightmove, onthemarket, purplebricks, zoopla) + normalizer + scheduler jobs
   scoring/     hard filters + validated criteria checks + AI desire scoring (cached)
   research/    geocoding, free UK data sources, area ranking, travel times, train stations
   llm/         provider-agnostic AI client (Anthropic / Ollama) with DB response cache + intake chat

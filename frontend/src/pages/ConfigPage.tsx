@@ -111,7 +111,7 @@ const SECTIONS: {
     help: (
       <div className="space-y-1.5">
         <p><b>Automatic scanning</b> polls the portals every ~30 minutes. Turning it off leaves manual "Scan now" working.</p>
-        <p><b>Zoopla adapter</b> needs a headless browser (Playwright + Chromium) installed on the server and is experimental — Rightmove and OnTheMarket work without it.</p>
+        <p><b>Zoopla adapter</b> needs a headless browser (Playwright + Chromium) installed on the server and is experimental — Rightmove, OnTheMarket and Purplebricks work without it.</p>
         <p>Changes here need a service restart: <code>sudo systemctl restart housespotter</code>.</p>
       </div>
     ),
