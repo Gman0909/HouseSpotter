@@ -72,20 +72,40 @@ def delete_list(list_id: int, session: Session = Depends(get_session), user: Use
 
 @router.get("/{list_id}/items")
 def list_items(list_id: int, session: Session = Depends(get_session), user: User = Depends(require_user)):
+    """Saved cards carry MORE detail than the feed grid: the full card payload plus a
+    description snippet and the list-item metadata (note, status, saved date)."""
     _own_list(session, list_id, user)
     items = session.exec(select(ListItem).where(ListItem.list_id == list_id)).all()
+
+    from ..research.stations import station_walk_map
+    from ..research.travel import access_scores
+    from .routes_properties import _card
+
+    property_ids = [i.property_id for i in items]
+    access = access_scores(session, property_ids, user.id)
+    stations = station_walk_map(session, property_ids)
+
     out = []
     for item in items:
         prop = session.get(Property, item.property_id)
-        listing = session.exec(
+        if not prop:
+            continue
+        # freshest live listing; fall back to any so delisted properties still
+        # render their last-known state
+        listings = session.exec(
             select(Listing).where(Listing.property_id == item.property_id)
-        ).first()
+        ).all()
+        live = [l for l in listings if l.status != "removed"]
+        listing = max(live or listings, key=lambda l: l.last_seen, default=None)
+        card = _card(prop, listing, None, access.get(prop.id), True, stations.get(prop.id))
         out.append({
-            "item": item,
-            "address": prop.address if prop else "?",
-            "image": (prop.image_urls[0] if prop and prop.image_urls else None),
-            "price": listing.price if listing else None,
-            "beds": prop.beds if prop else None,
+            "item": {
+                "id": item.id, "note": item.note, "status": item.status,
+                "added_at": item.added_at.isoformat(),
+            },
+            "card": card,
+            "description": (prop.description or "")[:260],
+            "delisted": not live,
             "property_id": item.property_id,
         })
     return out

@@ -37,7 +37,9 @@ export interface PropertyCard {
   property_type: string | null
   tenure: string | null
   epc: string | null
+  floor_area_sqm: number | null
   image: string | null
+  images: string[]
   price: number | null
   price_qualifier: string | null
   mode: string | null

@@ -20,7 +20,10 @@ def _card(prop: Property, listing: Listing | None, match: MatchScore | None, acc
         "property_type": prop.property_type,
         "tenure": prop.tenure,
         "epc": prop.epc,
+        "floor_area_sqm": prop.floor_area_sqm,
         "image": prop.image_urls[0] if prop.image_urls else None,
+        # enough for the hover-scrub gallery without bloating the payload
+        "images": (prop.image_urls or [])[:8],
         "price": listing.price if listing else None,
         "price_qualifier": listing.price_qualifier if listing else None,
         "mode": listing.mode if listing else None,

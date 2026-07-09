@@ -1,17 +1,33 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Trash2, Plus } from 'lucide-react'
+import {
+  Bath, BedDouble, ExternalLink, Plus, Ruler, TrainFront, Trash2, TrendingDown, Zap,
+} from 'lucide-react'
 import { api } from '../lib/api'
-import type { SavedListInfo } from '../lib/types'
+import type { PropertyCard, SavedListInfo } from '../lib/types'
+import { formatPrice, ScrubGallery } from '../components/PropertyCardView'
 
 interface ListItemRow {
-  item: { id: number; note: string; status: string }
-  address: string
-  image: string | null
-  price: number | null
-  beds: number | null
+  item: { id: number; note: string; status: string; added_at: string }
+  card: PropertyCard
+  description: string
+  delisted: boolean
   property_id: number
+}
+
+const STATUSES = ['', 'want to view', 'viewing booked', 'viewed', 'offer made', 'ruled out']
+
+function savedAgo(iso: string): string {
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000)
+  if (days < 1) return 'today'
+  if (days === 1) return 'yesterday'
+  return `${days}d ago`
+}
+
+function hasPriceDrop(history: { price: number }[] | null | undefined): boolean {
+  if (!history || history.length < 2) return false
+  return history[history.length - 1].price < history[history.length - 2].price
 }
 
 export default function ListsPage() {
@@ -56,9 +72,9 @@ export default function ListsPage() {
       qc.invalidateQueries({ queryKey: ['saved'] })
     },
   })
-  const saveNote = useMutation({
-    mutationFn: ({ itemId, note }: { itemId: number; note: string }) =>
-      api.patch(`/api/lists/${activeId}/items/${itemId}`, { note }),
+  const patchItem = useMutation({
+    mutationFn: ({ itemId, ...body }: { itemId: number; note?: string; status?: string }) =>
+      api.patch(`/api/lists/${activeId}/items/${itemId}`, body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['list-items', activeId] }),
   })
 
@@ -99,49 +115,150 @@ export default function ListsPage() {
 
       {activeId !== null && (
         <>
-          <div className="space-y-3">
-            {items.data?.map((row) => (
-              <div
-                key={row.item.id}
-                className="flex gap-3 rounded-2xl border border-stone-200 bg-white p-3 dark:border-stone-800 dark:bg-stone-900"
-              >
-                <Link to={`/property/${row.property_id}`} className="shrink-0">
-                  {row.image ? (
-                    <img src={row.image} alt="" className="h-20 w-28 rounded-xl object-cover" />
-                  ) : (
-                    <div className="flex h-20 w-28 items-center justify-center rounded-xl bg-stone-200 text-xs text-stone-400 dark:bg-stone-800">
-                      No photo
+          <div className="space-y-4">
+            {items.data?.map((row) => {
+              const c = row.card
+              return (
+                <div
+                  key={row.item.id}
+                  className="group flex flex-col gap-4 rounded-2xl border border-stone-200 bg-white p-4 sm:flex-row dark:border-stone-800 dark:bg-stone-900"
+                >
+                  <Link
+                    to={`/property/${row.property_id}`}
+                    className="group relative block h-44 w-full shrink-0 overflow-hidden rounded-xl bg-stone-200 sm:h-40 sm:w-56 dark:bg-stone-800"
+                  >
+                    <ScrubGallery
+                      images={c.images?.length ? c.images : c.image ? [c.image] : []}
+                      alt={c.address}
+                    />
+                    {row.delisted && (
+                      <span className="absolute left-2 top-2 rounded-full bg-stone-800/90 px-2 py-0.5 text-[11px] font-semibold text-white">
+                        No longer listed
+                      </span>
+                    )}
+                    {!row.delisted && hasPriceDrop(c.price_history) && (
+                      <span className="absolute left-2 top-2 flex items-center gap-1 rounded-full bg-amber-500 px-2 py-0.5 text-[11px] font-semibold text-white shadow">
+                        <TrendingDown size={11} /> Price drop
+                      </span>
+                    )}
+                  </Link>
+
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-baseline gap-x-2">
+                          <span className="text-lg font-bold tracking-tight">{formatPrice(c)}</span>
+                          {c.price_qualifier && c.price_qualifier !== 'pcm' && (
+                            <span className="text-[11px] text-stone-500">{c.price_qualifier}</span>
+                          )}
+                          {hasPriceDrop(c.price_history) && (
+                            <span className="text-xs font-medium text-amber-600">
+                              was £{c.price_history[c.price_history.length - 2].price.toLocaleString('en-GB')}
+                            </span>
+                          )}
+                        </div>
+                        <Link
+                          to={`/property/${row.property_id}`}
+                          className="mt-0.5 block truncate text-sm font-medium text-stone-700 hover:underline dark:text-stone-300"
+                        >
+                          {c.address}
+                        </Link>
+                      </div>
+                      <button
+                        onClick={() => removeItem.mutate(row.item.id)}
+                        title="Remove from list"
+                        className="shrink-0 text-stone-400 hover:text-red-500"
+                      >
+                        <Trash2 size={15} />
+                      </button>
                     </div>
-                  )}
-                </Link>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-start justify-between gap-2">
-                    <Link to={`/property/${row.property_id}`} className="truncate text-sm font-semibold hover:underline">
-                      {row.address}
-                    </Link>
-                    <button
-                      onClick={() => removeItem.mutate(row.item.id)}
-                      className="text-stone-400 hover:text-red-500"
-                    >
-                      <Trash2 size={15} />
-                    </button>
+
+                    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-stone-500">
+                      {c.beds != null && (
+                        <span className="flex items-center gap-1"><BedDouble size={14} /> {c.beds}</span>
+                      )}
+                      {c.baths != null && (
+                        <span className="flex items-center gap-1"><Bath size={14} /> {c.baths}</span>
+                      )}
+                      {c.property_type && <span className="capitalize">{c.property_type}</span>}
+                      {c.tenure && <span className="capitalize">{c.tenure}</span>}
+                      {c.epc && <span>EPC {c.epc}</span>}
+                      {c.floor_area_sqm != null && (
+                        <span className="flex items-center gap-1">
+                          <Ruler size={13} /> {Math.round(c.floor_area_sqm)} m²
+                          {c.price != null && c.mode === 'buy' && (
+                            <span className="text-stone-400">
+                              (£{Math.round(c.price / c.floor_area_sqm).toLocaleString('en-GB')}/m²)
+                            </span>
+                          )}
+                        </span>
+                      )}
+                      {c.station_walk_minutes !== null && c.station_walk_minutes <= 25 && (
+                        <span
+                          className="flex items-center gap-0.5 font-medium"
+                          title={`${c.station_name} — about ${Math.round(c.station_walk_minutes)} min walk`}
+                        >
+                          <TrainFront size={12} /> {c.station_name} {Math.round(c.station_walk_minutes)}′
+                        </span>
+                      )}
+                      {c.access_score !== null && (
+                        <span
+                          className="flex items-center gap-0.5 font-semibold text-brand-600 dark:text-brand-400"
+                          title="Milestone access score"
+                        >
+                          <Zap size={12} /> {c.access_score}
+                        </span>
+                      )}
+                    </div>
+
+                    {row.description && (
+                      <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-stone-500 dark:text-stone-400">
+                        {row.description}
+                      </p>
+                    )}
+
+                    <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                      <select
+                        value={row.item.status}
+                        onChange={(e) => patchItem.mutate({ itemId: row.item.id, status: e.target.value })}
+                        className={`rounded-lg border px-2 py-1 text-xs font-medium ${
+                          row.item.status
+                            ? 'border-brand-300 bg-brand-50 text-brand-700 dark:border-brand-800 dark:bg-brand-950 dark:text-brand-300'
+                            : 'border-stone-300 bg-transparent text-stone-500 dark:border-stone-700'
+                        }`}
+                      >
+                        {STATUSES.map((s) => (
+                          <option key={s} value={s}>
+                            {s || 'no status'}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        className="min-w-40 flex-1 rounded-lg border border-transparent bg-stone-50 px-2 py-1 text-xs text-stone-600 focus:border-stone-300 dark:bg-stone-800 dark:text-stone-300"
+                        placeholder="Add a note…"
+                        defaultValue={row.item.note}
+                        key={`note-${row.item.id}`}
+                        onBlur={(e) => {
+                          if (e.target.value !== row.item.note)
+                            patchItem.mutate({ itemId: row.item.id, note: e.target.value })
+                        }}
+                      />
+                      <span className="text-[11px] text-stone-400">saved {savedAgo(row.item.added_at)}</span>
+                      {c.url && (
+                        <a
+                          href={c.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex items-center gap-1 text-[11px] font-semibold capitalize text-stone-500 hover:text-brand-600"
+                        >
+                          {c.portal} <ExternalLink size={11} />
+                        </a>
+                      )}
+                    </div>
                   </div>
-                  <p className="text-sm text-stone-500">
-                    {row.price != null && `£${row.price.toLocaleString('en-GB')}`}
-                    {row.beds != null && ` · ${row.beds} bed`}
-                  </p>
-                  <input
-                    className="mt-1.5 w-full rounded-lg border border-transparent bg-stone-50 px-2 py-1 text-xs text-stone-600 focus:border-stone-300 dark:bg-stone-800 dark:text-stone-300"
-                    placeholder="Add a note…"
-                    defaultValue={row.item.note}
-                    onBlur={(e) => {
-                      if (e.target.value !== row.item.note)
-                        saveNote.mutate({ itemId: row.item.id, note: e.target.value })
-                    }}
-                  />
                 </div>
-              </div>
-            ))}
+              )
+            })}
             {items.data?.length === 0 && (
               <p className="rounded-2xl border border-dashed border-stone-300 p-8 text-center text-sm text-stone-500 dark:border-stone-700">
                 Nothing saved here yet. Tap Save on any property.

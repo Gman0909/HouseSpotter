@@ -1,3 +1,4 @@
+import { useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { BedDouble, Bath, Heart, MapPin, Sparkles, TrainFront, TrendingDown, Zap } from 'lucide-react'
 import type { PropertyCard } from '../lib/types'
@@ -7,6 +8,50 @@ export function formatPrice(card: Pick<PropertyCard, 'price' | 'mode'>): string 
   if (card.price == null) return 'POA'
   const gbp = card.price.toLocaleString('en-GB')
   return card.mode === 'rent' ? `£${gbp} pcm` : `£${gbp}`
+}
+
+/** Thumbnail that scrubs through the property's photos as the cursor moves left→right.
+ * Neighbouring frames are preloaded on first hover so scrubbing doesn't flash. */
+export function ScrubGallery({ images, alt, className }: { images: string[]; alt: string; className?: string }) {
+  const [index, setIndex] = useState(0)
+  const preloaded = useRef(false)
+
+  if (images.length === 0) {
+    return <div className="flex h-full items-center justify-center text-stone-400">No photo</div>
+  }
+  const current = images[Math.min(index, images.length - 1)]
+
+  function onMove(e: React.MouseEvent<HTMLDivElement>) {
+    if (images.length < 2) return
+    if (!preloaded.current) {
+      preloaded.current = true
+      images.slice(1).forEach((src) => {
+        const img = new Image()
+        img.src = src
+      })
+    }
+    const rect = e.currentTarget.getBoundingClientRect()
+    const frac = (e.clientX - rect.left) / rect.width
+    setIndex(Math.max(0, Math.min(images.length - 1, Math.floor(frac * images.length))))
+  }
+
+  return (
+    <div className="relative h-full w-full" onMouseMove={onMove} onMouseLeave={() => setIndex(0)}>
+      <img src={current} alt={alt} loading="lazy" className={className ?? 'h-full w-full object-cover'} />
+      {images.length > 1 && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-1.5 flex justify-center gap-1 opacity-0 transition-opacity duration-150 group-hover:opacity-100">
+          {images.map((_, i) => (
+            <span
+              key={i}
+              className={`h-1.5 rounded-full shadow transition-all ${
+                i === index ? 'w-3.5 bg-white' : 'w-1.5 bg-white/60'
+              }`}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 function isNew(firstSeen: string | null): boolean {
@@ -34,16 +79,10 @@ export default function PropertyCardView({
       className="group overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg dark:border-stone-800 dark:bg-stone-900"
     >
       <div className="relative aspect-[4/3] overflow-hidden bg-stone-200 dark:bg-stone-800">
-        {card.image ? (
-          <img
-            src={card.image}
-            alt={card.address}
-            loading="lazy"
-            className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
-          />
-        ) : (
-          <div className="flex h-full items-center justify-center text-stone-400">No photo</div>
-        )}
+        <ScrubGallery
+          images={card.images?.length ? card.images : card.image ? [card.image] : []}
+          alt={card.address}
+        />
         <div className="absolute left-2 top-2 flex gap-1.5">
           {isNew(card.first_seen) && !card.viewed && (
             <span className="flex items-center gap-1 rounded-full bg-brand-600 px-2 py-0.5 text-[11px] font-semibold text-white shadow">
