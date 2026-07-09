@@ -121,14 +121,16 @@ export default function FeedPage() {
   })
   const scanning = scan.data?.state === 'running'
 
-  // The map is an overview and must plot every match (incl. saved ones ranked far
-  // down the list); the grid stays a manageable top slice.
-  const feedLimit = view === 'map' ? 2000 : 60
+  // The map is an overview: plot every match (incl. saved ones ranked far down the
+  // list) plus any saved property that no longer matches this profile. The grid stays
+  // a manageable top slice of current matches only.
+  const isMap = view === 'map'
+  const feedLimit = isMap ? 2000 : 60
   const feed = useQuery({
-    queryKey: ['feed', activeProfile?.id ?? 'all', sort, areaFilter, feedLimit],
+    queryKey: ['feed', activeProfile?.id ?? 'all', sort, areaFilter, feedLimit, isMap],
     queryFn: () =>
       api.get<{ total: number; items: PropertyCard[] }>(
-        `/api/properties?sort=${sort}&limit=${feedLimit}${activeProfile ? `&profile_id=${activeProfile.id}` : ''}${areaFilter ? `&outcode=${encodeURIComponent(areaFilter)}` : ''}`,
+        `/api/properties?sort=${sort}&limit=${feedLimit}${activeProfile ? `&profile_id=${activeProfile.id}` : ''}${areaFilter ? `&outcode=${encodeURIComponent(areaFilter)}` : ''}${isMap ? '&include_saved=true' : ''}`,
       ),
     refetchInterval: scanning ? 10000 : false,
   })

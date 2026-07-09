@@ -48,6 +48,7 @@ def list_properties(
     min_score: float = 0,
     outcode: str | None = None,
     include_filtered: bool = False,
+    include_saved: bool = False,
     limit: int = Query(60, le=2000),
     offset: int = 0,
     session: Session = Depends(get_session),
@@ -96,19 +97,49 @@ def list_properties(
                 continue
         visible.append((prop, listing, match))
 
-    access = access_scores(session, [p.id for p, _, _ in visible], user.id)
+    # Saved properties the user wants pinned even if they no longer match this profile
+    # (e.g. criteria tightened since saving). Shown with a null score, and appended
+    # after the matches so they never inflate the match total.
+    extra: list[tuple[Property, Listing, MatchScore | None]] = []
+    if include_saved and profile:
+        matched_ids = {p.id for p, _, _ in visible}
+        from ..models import ListItem, SavedList
+
+        saved_list_ids = [
+            s.id for s in session.exec(
+                select(SavedList).where(SavedList.user_id == user.id)
+            ).all()
+        ]
+        if saved_list_ids:
+            saved_ids = {
+                i.property_id
+                for i in session.exec(
+                    select(ListItem).where(ListItem.list_id.in_(saved_list_ids))
+                ).all()
+            }
+            for pid in saved_ids - matched_ids:
+                prop = session.get(Property, pid)
+                listing = listings_by_prop.get(pid)
+                if prop and listing and prop.lat is not None and listing.mode == profile.mode:
+                    extra.append((prop, listing, None))
+
+    all_rows = visible + extra
+    access = access_scores(session, [p.id for p, _, _ in all_rows], user.id)
     viewed_ids = {
         v.property_id
         for v in session.exec(select(PropertyView).where(PropertyView.user_id == user.id)).all()
     }
     from ..research.stations import station_walk_map
 
-    stations = station_walk_map(session, [p.id for p, _, _ in visible])
-    cards = [
-        _card(p, l, m, access.get(p.id), p.id in viewed_ids, stations.get(p.id))
-        for p, l, m in visible
-    ]
+    stations = station_walk_map(session, [p.id for p, _, _ in all_rows])
 
+    def make(rows):
+        return [
+            _card(p, l, m, access.get(p.id), p.id in viewed_ids, stations.get(p.id))
+            for p, l, m in rows
+        ]
+
+    cards = make(visible)
     key = {
         "score": lambda c: -(c["score"] or 0),
         "newest": lambda c: c["first_seen"] or "",
@@ -117,7 +148,8 @@ def list_properties(
         "access": lambda c: -(c["access_score"] or 0),
     }[sort]
     cards.sort(key=key, reverse=(sort == "newest"))
-    return {"total": len(cards), "items": cards[offset : offset + limit]}
+    items = cards[offset : offset + limit] + make(extra)
+    return {"total": len(cards), "items": items}
 
 
 @router.get("/{property_id}")
