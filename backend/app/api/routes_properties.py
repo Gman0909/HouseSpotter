@@ -48,7 +48,7 @@ def list_properties(
     min_score: float = 0,
     outcode: str | None = None,
     include_filtered: bool = False,
-    limit: int = Query(60, le=200),
+    limit: int = Query(60, le=2000),
     offset: int = 0,
     session: Session = Depends(get_session),
     user: User = Depends(require_user),
