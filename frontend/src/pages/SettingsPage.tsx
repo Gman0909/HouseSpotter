@@ -94,12 +94,23 @@ function nearestRadiusMiles(km: number | undefined): number {
   RADIUS_MILES[0])
 }
 
+// Selected profile survives navigating away and back (per-tab, like the feed state)
+const PROFILE_SEL_KEY = 'hs-profiles-selected'
+
 export default function SettingsPage() {
   const qc = useQueryClient()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
-  const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [selectedId, setSelectedId] = useState<number | null>(() => {
+    const v = sessionStorage.getItem(PROFILE_SEL_KEY)
+    return v ? Number(v) : null
+  })
   const [saveError, setSaveError] = useState('')
+
+  useEffect(() => {
+    if (selectedId !== null) sessionStorage.setItem(PROFILE_SEL_KEY, String(selectedId))
+    else sessionStorage.removeItem(PROFILE_SEL_KEY)
+  }, [selectedId])
   const [showCreate, setShowCreate] = useState(false)
   const [agentOpen, setAgentOpen] = useState(searchParams.get('agent') === '1')
 
