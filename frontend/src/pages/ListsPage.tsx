@@ -20,6 +20,7 @@ const STATUSES = ['', 'want to view', 'viewing booked', 'viewed', 'offer made', 
 
 // Hidden statuses persist per-tab, like the other view state
 const HIDDEN_KEY = 'hs-lists-hidden-statuses'
+const SORT_KEY = 'hs-lists-sort'
 
 function loadHidden(): Set<string> {
   try {
@@ -28,6 +29,34 @@ function loadHidden(): Set<string> {
     return new Set()
   }
 }
+
+const SORTS: { id: string; label: string; cmp: (a: ListItemRow, b: ListItemRow) => number }[] = [
+  {
+    id: 'saved_desc',
+    label: 'Newest saved',
+    cmp: (a, b) => b.item.added_at.localeCompare(a.item.added_at),
+  },
+  {
+    id: 'saved_asc',
+    label: 'Oldest saved',
+    cmp: (a, b) => a.item.added_at.localeCompare(b.item.added_at),
+  },
+  {
+    id: 'price_asc',
+    label: 'Price ↑',
+    cmp: (a, b) => (a.card.price ?? Infinity) - (b.card.price ?? Infinity),
+  },
+  {
+    id: 'price_desc',
+    label: 'Price ↓',
+    cmp: (a, b) => (b.card.price ?? -Infinity) - (a.card.price ?? -Infinity),
+  },
+  {
+    id: 'access',
+    label: 'Access',
+    cmp: (a, b) => (b.card.access_score ?? -1) - (a.card.access_score ?? -1),
+  },
+]
 
 function savedAgo(iso: string): string {
   const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000)
@@ -106,8 +135,18 @@ export default function ListsPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['list-items', activeId] }),
   })
 
+  const [sortId, setSortId] = useState<string>(() => sessionStorage.getItem(SORT_KEY) ?? 'saved_desc')
+
+  function changeSort(id: string) {
+    setSortId(id)
+    sessionStorage.setItem(SORT_KEY, id)
+  }
+
   const filtersActive = hidden.size > 0
-  const visibleRows = (items.data ?? []).filter((r) => !hidden.has(r.item.status))
+  const sort = SORTS.find((s) => s.id === sortId) ?? SORTS[0]
+  const visibleRows = (items.data ?? [])
+    .filter((r) => !hidden.has(r.item.status))
+    .sort(sort.cmp)
 
   return (
     <div className="mx-auto max-w-5xl p-4 md:p-6">
@@ -147,6 +186,21 @@ export default function ListsPage() {
       {activeId !== null && (
         <>
           <div className="mb-4 flex flex-wrap items-center gap-2.5">
+            <div className="flex rounded-lg border border-stone-300 bg-white p-0.5 dark:border-stone-700 dark:bg-stone-900">
+              {SORTS.map((s) => (
+                <button
+                  key={s.id}
+                  onClick={() => changeSort(s.id)}
+                  className={`rounded-md px-2.5 py-1 text-xs font-medium transition ${
+                    sortId === s.id
+                      ? 'bg-brand-600 text-white'
+                      : 'text-stone-600 hover:bg-stone-100 dark:text-stone-400 dark:hover:bg-stone-800'
+                  }`}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
             <button
               onClick={() => setShowFilters((v) => !v)}
               className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
