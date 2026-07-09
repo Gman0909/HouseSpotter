@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  Bath, BedDouble, ExternalLink, Plus, Ruler, TrainFront, Trash2, TrendingDown, Zap,
+  Bath, BedDouble, ExternalLink, Filter, Plus, Ruler, TrainFront, Trash2, TrendingDown, X, Zap,
 } from 'lucide-react'
 import { api } from '../lib/api'
 import type { PropertyCard, SavedListInfo } from '../lib/types'
@@ -17,6 +17,17 @@ interface ListItemRow {
 }
 
 const STATUSES = ['', 'want to view', 'viewing booked', 'viewed', 'offer made', 'ruled out']
+
+// Hidden statuses persist per-tab, like the other view state
+const HIDDEN_KEY = 'hs-lists-hidden-statuses'
+
+function loadHidden(): Set<string> {
+  try {
+    return new Set(JSON.parse(sessionStorage.getItem(HIDDEN_KEY) ?? '[]'))
+  } catch {
+    return new Set()
+  }
+}
 
 function savedAgo(iso: string): string {
   const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000)
@@ -34,6 +45,23 @@ export default function ListsPage() {
   const qc = useQueryClient()
   const [selected, setSelected] = useState<number | null>(null)
   const [newName, setNewName] = useState('')
+  const [showFilters, setShowFilters] = useState(false)
+  const [hidden, setHidden] = useState<Set<string>>(loadHidden)
+
+  function toggleStatus(status: string) {
+    setHidden((prev) => {
+      const next = new Set(prev)
+      if (next.has(status)) next.delete(status)
+      else next.add(status)
+      sessionStorage.setItem(HIDDEN_KEY, JSON.stringify([...next]))
+      return next
+    })
+  }
+
+  function clearFilters() {
+    setHidden(new Set())
+    sessionStorage.removeItem(HIDDEN_KEY)
+  }
 
   const lists = useQuery({
     queryKey: ['lists'],
@@ -78,6 +106,9 @@ export default function ListsPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['list-items', activeId] }),
   })
 
+  const filtersActive = hidden.size > 0
+  const visibleRows = (items.data ?? []).filter((r) => !hidden.has(r.item.status))
+
   return (
     <div className="mx-auto max-w-5xl p-4 md:p-6">
       <h1 className="mb-4 text-2xl font-bold tracking-tight">Saved lists</h1>
@@ -115,8 +146,62 @@ export default function ListsPage() {
 
       {activeId !== null && (
         <>
+          <div className="mb-4 flex flex-wrap items-center gap-2.5">
+            <button
+              onClick={() => setShowFilters((v) => !v)}
+              className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
+                filtersActive
+                  ? 'border-brand-600 bg-brand-600 text-white'
+                  : showFilters
+                    ? 'border-brand-400 bg-white text-brand-700 dark:bg-stone-900'
+                    : 'border-stone-300 bg-white text-stone-600 hover:bg-stone-50 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-300'
+              }`}
+            >
+              <Filter size={13} /> Display filters
+              {filtersActive && (
+                <span className="rounded-full bg-white/25 px-1.5 text-[10px]">{hidden.size} hidden</span>
+              )}
+            </button>
+            {filtersActive && (
+              <span className="flex items-center gap-2 text-xs font-medium text-brand-700 dark:text-brand-300">
+                Showing {visibleRows.length} of {items.data?.length ?? 0} saved
+                <button
+                  onClick={clearFilters}
+                  className="flex items-center gap-0.5 rounded-full bg-brand-100 px-2 py-0.5 font-semibold text-brand-700 hover:bg-brand-200 dark:bg-brand-900 dark:text-brand-300"
+                >
+                  clear <X size={11} />
+                </button>
+              </span>
+            )}
+          </div>
+
+          {showFilters && (
+            <div className="mb-4 flex flex-wrap gap-x-5 gap-y-2 rounded-2xl border border-stone-200 bg-white p-4 dark:border-stone-800 dark:bg-stone-900">
+              {STATUSES.map((status) => {
+                const count = items.data?.filter((r) => r.item.status === status).length ?? 0
+                return (
+                  <label
+                    key={status || 'none'}
+                    className="flex cursor-pointer items-center gap-1.5 text-sm text-stone-700 dark:text-stone-300"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={!hidden.has(status)}
+                      onChange={() => toggleStatus(status)}
+                      className="accent-brand-600"
+                    />
+                    <span className={hidden.has(status) ? 'text-stone-400 line-through' : ''}>
+                      {status || 'no status'}
+                    </span>
+                    <span className="text-xs text-stone-400">({count})</span>
+                  </label>
+                )
+              })}
+            </div>
+          )}
+
           <div className="space-y-4">
-            {items.data?.map((row) => {
+            {visibleRows.map((row) => {
               const c = row.card
               return (
                 <div
@@ -262,6 +347,15 @@ export default function ListsPage() {
             {items.data?.length === 0 && (
               <p className="rounded-2xl border border-dashed border-stone-300 p-8 text-center text-sm text-stone-500 dark:border-stone-700">
                 Nothing saved here yet. Tap Save on any property.
+              </p>
+            )}
+            {(items.data?.length ?? 0) > 0 && visibleRows.length === 0 && (
+              <p className="rounded-2xl border border-dashed border-brand-300 p-8 text-center text-sm text-stone-500 dark:border-brand-800">
+                All {items.data!.length} saved {items.data!.length === 1 ? 'item is' : 'items are'} hidden
+                by your display filters.{' '}
+                <button onClick={clearFilters} className="font-semibold text-brand-600 hover:underline">
+                  Clear filters
+                </button>
               </p>
             )}
           </div>
