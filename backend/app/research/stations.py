@@ -30,6 +30,22 @@ MAX_STATION_KM = 15.0  # beyond this we just report the distance, no walk framin
 
 _station_cache: list[tuple[int, str, float, float]] | None = None  # (id, name, lat, lng)
 
+# Attraction railways slip through the tag filter when mappers omit the station
+# subtag (e.g. 'Audley End Miniature Railway' is railway=station, no station=*).
+# A name check catches them regardless of tagging.
+_FAKE_NAME_RE = None
+
+
+def _not_a_real_station(name: str, tags: dict) -> bool:
+    global _FAKE_NAME_RE
+    if _FAKE_NAME_RE is None:
+        import re
+
+        _FAKE_NAME_RE = re.compile(r"miniature|model railway", re.I)
+    if _FAKE_NAME_RE.search(name):
+        return True
+    return (tags.get("railway") or "") == "miniature"
+
 
 def refresh_stations() -> int:
     """Fetch all GB rail stations from Overpass into the TrainStation table.
@@ -55,7 +71,7 @@ def refresh_stations() -> int:
         name = tags.get("name")
         lat = el.get("lat") or (el.get("center") or {}).get("lat")
         lng = el.get("lon") or (el.get("center") or {}).get("lon")
-        if name and lat is not None and lng is not None:
+        if name and lat is not None and lng is not None and not _not_a_real_station(name, tags):
             rows.append((name, lat, lng))
     if len(rows) < 500:  # sanity: GB has ~2,800 stations; a tiny result means a bad fetch
         log.warning("Overpass returned only %d stations; keeping existing table", len(rows))
