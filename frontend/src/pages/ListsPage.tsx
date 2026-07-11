@@ -14,6 +14,8 @@ interface ListItemRow {
   description: string
   delisted: boolean
   property_id: number
+  list_id: number
+  list_name: string
 }
 
 const STATUSES = ['', 'want to view', 'viewing booked', 'viewed', 'offer made', 'ruled out']
@@ -72,7 +74,7 @@ function hasPriceDrop(history: { price: number }[] | null | undefined): boolean 
 
 export default function ListsPage() {
   const qc = useQueryClient()
-  const [selected, setSelected] = useState<number | null>(null)
+  const [selected, setSelected] = useState<number | 'all' | null>(null)
   const [newName, setNewName] = useState('')
   const [showFilters, setShowFilters] = useState(false)
   const [hidden, setHidden] = useState<Set<string>>(loadHidden)
@@ -96,11 +98,13 @@ export default function ListsPage() {
     queryKey: ['lists'],
     queryFn: () => api.get<SavedListInfo[]>('/api/lists'),
   })
-  const activeId = selected ?? lists.data?.[0]?.id ?? null
+  const activeId = selected ?? (lists.data && lists.data.length > 1 ? 'all' : lists.data?.[0]?.id ?? null)
+  const isAll = activeId === 'all'
+  const totalCount = lists.data?.reduce((s, l) => s + l.count, 0) ?? 0
 
   const items = useQuery({
     queryKey: ['list-items', activeId],
-    queryFn: () => api.get<ListItemRow[]>(`/api/lists/${activeId}/items`),
+    queryFn: () => api.get<ListItemRow[]>(`/api/lists/${isAll ? 'all' : activeId}/items`),
     enabled: activeId !== null,
   })
 
@@ -121,18 +125,19 @@ export default function ListsPage() {
     },
   })
   const removeItem = useMutation({
-    mutationFn: (itemId: number) => api.delete(`/api/lists/${activeId}/items/${itemId}`),
+    mutationFn: ({ listId, itemId }: { listId: number; itemId: number }) =>
+      api.delete(`/api/lists/${listId}/items/${itemId}`),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['list-items', activeId] })
+      qc.invalidateQueries({ queryKey: ['list-items'] })
       qc.invalidateQueries({ queryKey: ['lists'] })
       qc.invalidateQueries({ queryKey: ['saved-ids'] })
       qc.invalidateQueries({ queryKey: ['saved'] })
     },
   })
   const patchItem = useMutation({
-    mutationFn: ({ itemId, ...body }: { itemId: number; note?: string; status?: string }) =>
-      api.patch(`/api/lists/${activeId}/items/${itemId}`, body),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['list-items', activeId] }),
+    mutationFn: ({ listId, itemId, ...body }: { listId: number; itemId: number; note?: string; status?: string }) =>
+      api.patch(`/api/lists/${listId}/items/${itemId}`, body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['list-items'] }),
   })
 
   const [sortId, setSortId] = useState<string>(() => sessionStorage.getItem(SORT_KEY) ?? 'saved_desc')
@@ -153,6 +158,18 @@ export default function ListsPage() {
       <h1 className="mb-4 text-2xl font-bold tracking-tight">Saved lists</h1>
 
       <div className="mb-5 flex flex-wrap items-center gap-2">
+        {(lists.data?.length ?? 0) > 0 && (
+          <button
+            onClick={() => setSelected('all')}
+            className={`rounded-full px-3.5 py-1.5 text-sm font-medium transition ${
+              isAll
+                ? 'bg-brand-600 text-white'
+                : 'bg-white text-stone-600 hover:bg-stone-50 dark:bg-stone-900 dark:text-stone-300'
+            }`}
+          >
+            All <span className="opacity-60">({totalCount})</span>
+          </button>
+        )}
         {lists.data?.map((list) => (
           <button
             key={list.id}
@@ -304,8 +321,8 @@ export default function ListsPage() {
                         </Link>
                       </div>
                       <button
-                        onClick={() => removeItem.mutate(row.item.id)}
-                        title="Remove from list"
+                        onClick={() => removeItem.mutate({ listId: row.list_id, itemId: row.item.id })}
+                        title={isAll ? `Remove from ${row.list_name}` : 'Remove from list'}
                         className="shrink-0 text-stone-400 hover:text-red-500"
                       >
                         <Trash2 size={15} />
@@ -359,7 +376,7 @@ export default function ListsPage() {
                     <div className="mt-2.5 flex flex-wrap items-center gap-2">
                       <select
                         value={row.item.status}
-                        onChange={(e) => patchItem.mutate({ itemId: row.item.id, status: e.target.value })}
+                        onChange={(e) => patchItem.mutate({ listId: row.list_id, itemId: row.item.id, status: e.target.value })}
                         className={`rounded-lg border px-2 py-1 text-xs font-medium ${
                           row.item.status
                             ? 'border-brand-300 bg-brand-50 text-brand-700 dark:border-brand-800 dark:bg-brand-950 dark:text-brand-300'
@@ -379,9 +396,18 @@ export default function ListsPage() {
                         key={`note-${row.item.id}`}
                         onBlur={(e) => {
                           if (e.target.value !== row.item.note)
-                            patchItem.mutate({ itemId: row.item.id, note: e.target.value })
+                            patchItem.mutate({ listId: row.list_id, itemId: row.item.id, note: e.target.value })
                         }}
                       />
+                      {isAll && (
+                        <button
+                          onClick={() => setSelected(row.list_id)}
+                          title={`Go to list: ${row.list_name}`}
+                          className="rounded-full bg-stone-100 px-2 py-0.5 text-[11px] font-semibold text-stone-600 hover:bg-brand-100 hover:text-brand-700 dark:bg-stone-800 dark:text-stone-300"
+                        >
+                          {row.list_name}
+                        </button>
+                      )}
                       <span className="text-[11px] text-stone-400">saved {savedAgo(row.item.added_at)}</span>
                       {c.url && (
                         <a
@@ -413,12 +439,14 @@ export default function ListsPage() {
               </p>
             )}
           </div>
-          <button
-            onClick={() => deleteList.mutate(activeId)}
-            className="mt-6 text-xs text-stone-400 hover:text-red-500"
-          >
-            Delete this list
-          </button>
+          {!isAll && typeof activeId === 'number' && (
+            <button
+              onClick={() => deleteList.mutate(activeId)}
+              className="mt-6 text-xs text-stone-400 hover:text-red-500"
+            >
+              Delete this list
+            </button>
+          )}
         </>
       )}
     </div>

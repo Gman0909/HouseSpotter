@@ -70,23 +70,19 @@ def delete_list(list_id: int, session: Session = Depends(get_session), user: Use
     return {"ok": True}
 
 
-@router.get("/{list_id}/items")
-def list_items(list_id: int, session: Session = Depends(get_session), user: User = Depends(require_user)):
-    """Saved cards carry MORE detail than the feed grid: the full card payload plus a
-    description snippet and the list-item metadata (note, status, saved date)."""
-    _own_list(session, list_id, user)
-    items = session.exec(select(ListItem).where(ListItem.list_id == list_id)).all()
-
+def _item_rows(session: Session, user: User, pairs: list[tuple[ListItem, int, str]]) -> list[dict]:
+    """Rich rows for saved items: full card payload plus description snippet and the
+    list-item metadata (note, status, saved date). Carries MORE detail than the feed."""
     from ..research.stations import station_walk_map
     from ..research.travel import access_scores
     from .routes_properties import _card
 
-    property_ids = [i.property_id for i in items]
+    property_ids = [item.property_id for item, _, _ in pairs]
     access = access_scores(session, property_ids, user.id)
     stations = station_walk_map(session, property_ids)
 
     out = []
-    for item in items:
+    for item, list_id, list_name in pairs:
         prop = session.get(Property, item.property_id)
         if not prop:
             continue
@@ -107,8 +103,30 @@ def list_items(list_id: int, session: Session = Depends(get_session), user: User
             "description": (prop.description or "")[:260],
             "delisted": not live,
             "property_id": item.property_id,
+            "list_id": list_id,
+            "list_name": list_name,
         })
     return out
+
+
+@router.get("/all/items")
+def all_items(session: Session = Depends(get_session), user: User = Depends(require_user)):
+    """Every saved property across all of the user's lists. A property saved to two
+    lists appears once per list (each carries its own note/status)."""
+    lists = session.exec(select(SavedList).where(SavedList.user_id == user.id)).all()
+    names = {l.id: l.name for l in lists}
+    pairs: list[tuple[ListItem, int, str]] = []
+    for lst in lists:
+        for item in session.exec(select(ListItem).where(ListItem.list_id == lst.id)).all():
+            pairs.append((item, lst.id, names[lst.id]))
+    return _item_rows(session, user, pairs)
+
+
+@router.get("/{list_id}/items")
+def list_items(list_id: int, session: Session = Depends(get_session), user: User = Depends(require_user)):
+    saved = _own_list(session, list_id, user)
+    items = session.exec(select(ListItem).where(ListItem.list_id == list_id)).all()
+    return _item_rows(session, user, [(i, list_id, saved.name) for i in items])
 
 
 @router.post("/{list_id}/items")

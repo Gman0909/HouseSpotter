@@ -29,6 +29,9 @@ ROUTE_FACTOR = 1.3  # crow-flies → street-network fudge for estimates
 MAX_STATION_KM = 15.0  # beyond this we just report the distance, no walk framing
 
 _station_cache: list[tuple[int, str, float, float]] | None = None  # (id, name, lat, lng)
+# nearest-station memo per property — the full-station scan is the hot path of the
+# (now uncapped) feed. Cleared when the station table refreshes.
+_nearest_memo: dict[int, tuple[int, str, float] | None] = {}
 
 # Attraction railways slip through the tag filter when mappers omit the station
 # subtag (e.g. 'Audley End Miniature Railway' is railway=station, no station=*).
@@ -87,6 +90,7 @@ def refresh_stations() -> int:
             session.add(TrainStation(name=name, lat=lat, lng=lng))
         session.commit()
     _station_cache = None
+    _nearest_memo.clear()
     log.info("Station table refreshed: %d stations", len(rows))
     return len(rows)
 
@@ -214,15 +218,20 @@ def station_walk_map(session: Session, property_ids: list[int]) -> dict[int, dic
         cached[(row.property_id, row.station_id)] = row
     out: dict[int, dict | None] = {}
     for pid in property_ids:
-        prop = session.get(Property, pid)
-        if not prop or prop.lat is None:
+        if pid in _nearest_memo:
+            memo = _nearest_memo[pid]
+        else:
+            prop = session.get(Property, pid)
+            if not prop or prop.lat is None:
+                memo = None
+            else:
+                nearest = nearest_stations(prop.lat, prop.lng, limit=1)
+                memo = nearest[0] if nearest else None
+            _nearest_memo[pid] = memo
+        if memo is None:
             out[pid] = None
             continue
-        nearest = nearest_stations(prop.lat, prop.lng, limit=1)
-        if not nearest:
-            out[pid] = None
-            continue
-        sid, name, crow_km = nearest[0]
+        sid, name, crow_km = memo
         if crow_km > MAX_STATION_KM:
             out[pid] = None
             continue

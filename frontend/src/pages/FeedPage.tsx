@@ -121,11 +121,10 @@ export default function FeedPage() {
   })
   const scanning = scan.data?.state === 'running'
 
-  // The map is an overview: plot every match (incl. saved ones ranked far down the
-  // list) plus any saved property that no longer matches this profile. The grid stays
-  // a manageable top slice of current matches only.
+  // Both views load the full match set; the map additionally pins saved properties
+  // that no longer match the profile.
   const isMap = view === 'map'
-  const feedLimit = isMap ? 2000 : 60
+  const feedLimit = 2000
   const feed = useQuery({
     queryKey: ['feed', activeProfile?.id ?? 'all', sort, areaFilter, feedLimit, isMap],
     queryFn: () =>
