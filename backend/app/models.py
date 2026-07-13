@@ -46,6 +46,9 @@ class SearchProfile(SQLModel, table=True):
     nice_to_haves: list = Field(default_factory=list, sa_column=Column(JSON))
     # portal-style one-click exclusions: ["retirement","shared_ownership","auction","park_home"]
     exclusions: list = Field(default_factory=list, sa_column=Column(JSON))
+    # free-text terms to exclude: matched against address, outcode, postcode,
+    # description and features. e.g. ["Hackney", "CB4", "ex-council"]
+    excluded_keywords: list = Field(default_factory=list, sa_column=Column(JSON))
     min_floor_area: Optional[int] = None  # square metres; unknown areas are not excluded
     # [{"label":"Office","lat":51.5,"lng":-0.1,"max_minutes":45,"mode":"transit"}]
     commutes: list = Field(default_factory=list, sa_column=Column(JSON))

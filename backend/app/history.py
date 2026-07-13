@@ -15,7 +15,7 @@ log = logging.getLogger("housespotter.history")
 EDITABLE_FIELDS = {
     "name", "mode", "active", "min_price", "max_price", "min_beds", "max_beds",
     "min_baths", "property_types", "tenures", "locations", "must_haves",
-    "nice_to_haves", "exclusions", "min_floor_area", "commutes", "qol_weights",
+    "nice_to_haves", "exclusions", "excluded_keywords", "min_floor_area", "commutes", "qol_weights",
     "brief", "alert_threshold", "alert_min_access", "alert_channels", "alert_digest",
     "quiet_hours",
 }

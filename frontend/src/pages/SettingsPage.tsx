@@ -409,6 +409,17 @@ export default function SettingsPage() {
             </div>
           </Row>
 
+          <Row label="Excluded areas & keywords">
+            <ExcludedKeywordsEditor
+              key={`xkw-${profile.id}`}
+              terms={profile.excluded_keywords ?? []}
+              onSave={(terms) => save.mutate({ excluded_keywords: terms })}
+            />
+          </Row>
+          <p className="-mt-2 text-right text-xs text-stone-400">
+            Hide any listing whose address, postcode, or description contains these — e.g. a postcode district CB4, a neighborhood name, or 'ex-council'.
+          </p>
+
           <div className="border-t border-stone-200 pt-3 dark:border-stone-800">
             <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-stone-400">
               Alert thresholds
@@ -1021,6 +1032,66 @@ function AreaPreferences({
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+function ExcludedKeywordsEditor({
+  terms,
+  onSave,
+}: {
+  terms: string[]
+  onSave: (terms: string[]) => void
+}) {
+  const [draft, setDraft] = useState('')
+
+  const commit = (next: string[]) => {
+    setDraft('')
+    onSave(next)
+  }
+
+  const add = () => {
+    const v = draft.trim()
+    if (!v) return
+    if (terms.some((t) => t.toLowerCase() === v.toLowerCase())) {
+      setDraft('')
+      return
+    }
+    commit([...terms, v])
+  }
+
+  return (
+    <div className="flex w-full flex-col items-end gap-1.5">
+      <div className="flex flex-wrap justify-end gap-1.5">
+        {terms.map((t) => (
+          <span
+            key={t}
+            className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2.5 py-1 text-xs font-medium text-red-600 dark:bg-red-950 dark:text-red-300"
+          >
+            {t}
+            <button
+              type="button"
+              onClick={() => commit(terms.filter((x) => x !== t))}
+              className="text-red-400 hover:text-red-600 dark:hover:text-red-200"
+              title={`Stop excluding ${t}`}
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </span>
+        ))}
+      </div>
+      <input
+        className="input w-56"
+        placeholder="add term, press Enter…"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault()
+            add()
+          }
+        }}
+      />
     </div>
   )
 }

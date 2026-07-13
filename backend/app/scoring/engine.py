@@ -7,6 +7,7 @@ nothing is ever scored twice.
 import json
 import logging
 import math
+import re
 import threading
 
 from sqlmodel import Session, select
@@ -34,6 +35,27 @@ def _haversine_km(lat1, lng1, lat2, lng2) -> float:
 
 def _text_blob(prop: Property) -> str:
     return " ".join([prop.description or "", " ".join(prop.features or [])]).lower()
+
+
+def _excluded_terms_hit(terms: list[str], prop: Property) -> str | None:
+    """First excluded term found in the property's text, or None.
+
+    Whole-phrase word-boundary matching so 'CB4' does not match 'CB45'.
+    Whitespace is collapsed on both sides so multi-word terms like
+    'Teversham Drift' survive line breaks in scraped descriptions.
+    """
+    haystack = re.sub(
+        r"\s+", " ",
+        " ".join(filter(None, [
+            prop.address or "", prop.outcode or "", prop.postcode or "",
+            _text_blob(prop),
+        ])),
+    ).strip().lower()
+    for raw in terms:
+        term = re.sub(r"\s+", " ", raw.strip().lower())
+        if term and re.search(rf"\b{re.escape(term)}\b", haystack):
+            return term
+    return None
 
 def _keyword_check(keywords: list[str], exclude: list[str] | None = None):
     def check(prop: Property, listing: Listing, profile: SearchProfile):
@@ -159,6 +181,12 @@ def passes_hard_filters(prop: Property, listing: Listing, profile: SearchProfile
             blob = _text_blob(prop)
             if any(kw in blob for kw in keywords):
                 return False, f"excluded: {label.lower()}"
+    # Free-text exclusions (areas or keywords): reject if any term matches.
+    terms = list(profile.excluded_keywords or [])
+    if terms:
+        hit = _excluded_terms_hit(terms, prop)
+        if hit:
+            return False, f"excluded term: {hit}"
     # Structured must-haves (boolean keys checked against listing text)
     for key, required in (profile.must_haves or {}).items():
         if required and key in STRUCTURED_CHECKS:
