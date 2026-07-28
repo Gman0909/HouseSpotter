@@ -99,10 +99,13 @@ def _to_listing(item: dict, mode: str) -> NormalizedListing | None:
     if isinstance(price_raw, (int, float)):
         price = int(price_raw)
     elif isinstance(price_raw, str):
-        digits = re.sub(r"[^\d]", "", price_raw)
-        price = int(digits) if digits else None
-        if mode == "rent" and price and "pw" in price_raw.lower():
-            price = round(price * 52 / 12)
+        # Rent strings can carry both amounts ("£1,200 pcm (£277 pw)") — take the
+        # first, and convert only when that amount itself is per-week.
+        m = re.search(r"([\d,]+)\s*(pcm|pw)?", price_raw, re.I)
+        if m:
+            price = int(m.group(1).replace(",", ""))
+            if mode == "rent" and (m.group(2) or "").lower() == "pw":
+                price = round(price * 52 / 12)
 
     pos = item.get("pos") or item.get("location") or {}
     prop_type = (item.get("propertyType") or item.get("property_type") or "").lower() or None

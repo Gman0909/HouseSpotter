@@ -7,7 +7,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 from .config import settings
 from .models import Meta, User  # noqa: F401 — import registers all models
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 engine = create_engine(
     f"sqlite:///{settings.db_path}",
@@ -188,6 +188,33 @@ def _migrate_v7_excluded_keywords(session: Session) -> None:
     session.commit()
 
 
+def _migrate_v8_fix_rent_prices(session: Session) -> None:
+    """Drop rent prices corrupted by the OnTheMarket "£X pcm (£Y pw)" parse bug,
+    which concatenated both amounts' digits and then multiplied by 52/12. Corrupt
+    values are always in the millions; anything ≥ £100k pcm is garbage. The next
+    poll re-fills the correct price (and appends it to the cleaned history)."""
+    import json
+
+    rows = session.connection().execute(
+        text("SELECT id, price, price_history FROM listing WHERE mode = 'rent'")
+    ).mappings().all()
+    for row in rows:
+        try:
+            history = json.loads(row["price_history"] or "[]")
+        except json.JSONDecodeError:
+            history = []
+        sane = [h for h in history if (h.get("price") or 0) < 100_000]
+        price = row["price"]
+        if price is not None and price >= 100_000:
+            price = sane[-1]["price"] if sane else None
+        if price != row["price"] or len(sane) != len(history):
+            session.connection().execute(
+                text("UPDATE listing SET price = :p, price_history = :h WHERE id = :id"),
+                {"p": price, "h": json.dumps(sane), "id": row["id"]},
+            )
+    session.commit()
+
+
 MIGRATIONS: dict[int, list] = {
     2: [_migrate_v2_area_searches],
     3: [_migrate_v3_baseline_snapshots],
@@ -195,6 +222,7 @@ MIGRATIONS: dict[int, list] = {
     5: [_migrate_v5_portal_filters],
     6: [_migrate_v6_alert_min_access],
     7: [_migrate_v7_excluded_keywords],
+    8: [_migrate_v8_fix_rent_prices],
 }
 
 

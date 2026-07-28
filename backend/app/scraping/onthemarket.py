@@ -42,18 +42,29 @@ def _slug(label: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", label.strip().lower()).strip("-")
 
 
+# Rent strings carry both amounts — "£1,400 pcm (£323 pw)" — so match amounts
+# individually; stripping digits from the whole string concatenates them.
+_PRICE_TOKEN_RE = re.compile(r"([\d,]+)\s*(pcm|pw)?", re.I)
+
+
 def _parse_price(text: str | None, mode: str) -> tuple[int | None, str | None]:
     if not text:
         return None, None
-    digits = re.sub(r"[^\d]", "", text)
-    if not digits:
+    tokens = [
+        (int(amount.replace(",", "")), (unit or "").lower())
+        for amount, unit in _PRICE_TOKEN_RE.findall(text)
+    ]
+    if not tokens:
         return None, text.strip() or None  # "POA"
-    amount = int(digits)
     if mode == "rent":
-        if "pw" in text.lower():
-            amount = round(amount * 52 / 12)
-        return amount, "pcm"
-    return amount, None
+        for amount, unit in tokens:
+            if unit == "pcm":
+                return amount, "pcm"
+        for amount, unit in tokens:
+            if unit == "pw":
+                return round(amount * 52 / 12), "pcm"
+        return tokens[0][0], "pcm"
+    return tokens[0][0], None
 
 
 def _norm_type(humanised: str | None) -> str | None:
