@@ -3,6 +3,7 @@ from sqlmodel import Session, select
 
 from ..auth import require_user
 from ..db import get_session
+from ..media import thumb_url
 from ..models import Listing, MatchScore, Property, PropertyView, SearchProfile, User
 
 router = APIRouter(prefix="/api/properties", tags=["properties"])
@@ -21,9 +22,11 @@ def _card(prop: Property, listing: Listing | None, match: MatchScore | None, acc
         "tenure": prop.tenure,
         "epc": prop.epc,
         "floor_area_sqm": prop.floor_area_sqm,
-        "image": prop.image_urls[0] if prop.image_urls else None,
-        # enough for the hover-scrub gallery without bloating the payload
-        "images": (prop.image_urls or [])[:8],
+        "image": thumb_url(prop.image_urls[0]) if prop.image_urls else None,
+        # small CDN variants, capped: enough for the hover-scrub gallery without
+        # bloating the payload (the detail page serves the full-resolution set)
+        "images": [thumb_url(u) for u in (prop.image_urls or [])[:8]],
+        "image_count": len(prop.image_urls or []),
         "price": listing.price if listing else None,
         "price_qualifier": listing.price_qualifier if listing else None,
         "mode": listing.mode if listing else None,
@@ -213,11 +216,23 @@ def get_property(property_id: int, profile_id: int | None = None, session: Sessi
                     freshest = max(results, key=lambda a: a.refreshed_at or a.id)
                     area = freshest.model_dump()
 
+    # Full gallery not fetched yet for a live listing → enrich in the background;
+    # the client re-polls while photos_pending is true and picks up the new photos.
+    from ..scraping.enrich import ENRICHERS, enrich_property_async
+
+    photos_pending = any(
+        l.status != "removed" and l.portal in ENRICHERS and l.photos_enriched_at is None
+        for l in listings
+    )
+    if photos_pending:
+        enrich_property_async(property_id)
+
     return {
         "property": prop,
         "listings": listings,
         "match": match,
         "area": area,
+        "photos_pending": photos_pending,
     }
 
 

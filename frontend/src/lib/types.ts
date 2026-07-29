@@ -41,6 +41,7 @@ export interface PropertyCard {
   floor_area_sqm: number | null
   image: string | null
   images: string[]
+  image_count: number
   price: number | null
   price_qualifier: string | null
   mode: string | null
@@ -139,6 +140,7 @@ export interface PropertyDetail {
     price_history: { date: string; price: number }[]
   }[]
   match: Match | null
+  photos_pending: boolean
   area: {
     code: string
     name: string

@@ -7,7 +7,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 from .config import settings
 from .models import Meta, User  # noqa: F401 — import registers all models
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 engine = create_engine(
     f"sqlite:///{settings.db_path}",
@@ -215,6 +215,32 @@ def _migrate_v8_fix_rent_prices(session: Session) -> None:
     session.commit()
 
 
+def _migrate_v9_listing_media(session: Session) -> None:
+    """Per-listing photo galleries + floorplans, with detail-page enrichment tracking.
+    Existing listings inherit their property's photo set, and every payload hash is
+    cleared so the next poll re-stores each listing's own search photos."""
+    from sqlalchemy.exc import OperationalError
+
+    for stmt in (
+        "ALTER TABLE listing ADD COLUMN image_urls TEXT DEFAULT '[]'",
+        "ALTER TABLE listing ADD COLUMN gallery_urls TEXT DEFAULT '[]'",
+        "ALTER TABLE listing ADD COLUMN floorplan_urls TEXT DEFAULT '[]'",
+        "ALTER TABLE listing ADD COLUMN photos_enriched_at TIMESTAMP",
+    ):
+        try:
+            session.exec(text(stmt))
+        except OperationalError:
+            pass  # column already exists (fresh install via create_all)
+    session.commit()
+    session.exec(text(
+        "UPDATE listing SET image_urls = COALESCE("
+        "(SELECT p.image_urls FROM property p WHERE p.id = listing.property_id), '[]')"
+        " WHERE image_urls IS NULL OR image_urls = '[]'"
+    ))
+    session.exec(text("UPDATE listing SET payload_hash = ''"))
+    session.commit()
+
+
 MIGRATIONS: dict[int, list] = {
     2: [_migrate_v2_area_searches],
     3: [_migrate_v3_baseline_snapshots],
@@ -223,6 +249,7 @@ MIGRATIONS: dict[int, list] = {
     6: [_migrate_v6_alert_min_access],
     7: [_migrate_v7_excluded_keywords],
     8: [_migrate_v8_fix_rent_prices],
+    9: [_migrate_v9_listing_media],
 }
 
 

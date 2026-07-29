@@ -179,10 +179,14 @@ def _send_single(channel: str, profile: SearchProfile, prop: Property, listing: 
             + (f" · EPC {prop.epc}" if prop.epc else "")
             + f"\n{match.rationale}\n{listing.url}"
         )
-        photo = prop.image_urls[0] if prop.image_urls else None
+        from ..media import thumb_url
+
+        photo = thumb_url(prop.image_urls[0]) if prop.image_urls else None
         return send_telegram(caption, photo_url=photo, chat_id=chat_id)
     if channel == "email":
-        img = f'<img src="{prop.image_urls[0]}" style="max-width:480px;border-radius:12px"><br>' if prop.image_urls else ""
+        from ..media import thumb_url
+
+        img = f'<img src="{thumb_url(prop.image_urls[0])}" style="max-width:480px;border-radius:12px"><br>' if prop.image_urls else ""
         body = (
             f"{img}<h2 style='margin:8px 0'>{price} — {prop.address}</h2>"
             f"<p><b>{_score_line(match.score, access)}</b> for “{profile.name}”<br>"

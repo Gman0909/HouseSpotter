@@ -88,7 +88,15 @@ def _to_listing(prop: dict, mode: str) -> NormalizedListing:
             lat, lng = coords
 
     image = prop.get("image") or {}
-    image_url = image.get("mediumImage") or image.get("largeImage") or image.get("smallImage")
+    image_url = image.get("largeImage") or image.get("mediumImage") or image.get("smallImage")
+    # Photos are numbered sequentially ("…-1.jpg" … "…-N.jpg") and the payload says how
+    # many exist, so the whole gallery is derivable without fetching the detail page.
+    image_urls = [image_url] if image_url else []
+    count = image.get("imageCount") or 0
+    if image_url and count > 1:
+        m = re.match(r"(.+-)\d+(\.\w+)$", image_url)
+        if m:
+            image_urls = [f"{m.group(1)}{n}{m.group(2)}" for n in range(1, min(int(count), 60) + 1)]
 
     status = "live"
     if prop.get("sold"):
@@ -113,7 +121,7 @@ def _to_listing(prop: dict, mode: str) -> NormalizedListing:
         baths=features.get("bathrooms"),
         property_type=_norm_type(prop.get("title")),
         description=prop.get("description") or prop.get("title") or "",
-        image_urls=[image_url] if image_url else [],
+        image_urls=image_urls,
         raw=None,
     )
 

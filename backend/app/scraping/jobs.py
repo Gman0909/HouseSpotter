@@ -154,6 +154,16 @@ def _poll_all() -> None:
     except Exception:
         log.exception("Alerting failed")
 
+    # After alerts (so they aren't delayed): fetch full photo galleries + floorplans
+    # from detail pages, a capped batch per cycle
+    from .enrich import enrich_pending
+
+    set_scan_status(state="running", progress="photo galleries")
+    try:
+        enrich_pending()
+    except Exception:
+        log.exception("Photo enrichment failed")
+
 
 def _poll_profile_portal(adapter, profile_id: int) -> int:
     """Runs one portal for one profile. Returns number of new listings, or -1 on failure."""

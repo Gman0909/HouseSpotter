@@ -109,6 +109,12 @@ class Listing(SQLModel, table=True):
     # [{"date":"2026-07-01","price":450000}]
     price_history: list = Field(default_factory=list, sa_column=Column(JSON))
     payload_hash: str = ""  # hash of normalized payload, to skip unchanged listings
+    # photo set from the search results (refreshed every poll)
+    image_urls: list = Field(default_factory=list, sa_column=Column(JSON))
+    # full gallery from the portal's detail page (photo enrichment; empty until enriched)
+    gallery_urls: list = Field(default_factory=list, sa_column=Column(JSON))
+    floorplan_urls: list = Field(default_factory=list, sa_column=Column(JSON))
+    photos_enriched_at: Optional[datetime] = None
     raw: Optional[dict] = Field(default=None, sa_column=Column(JSON))
 
 

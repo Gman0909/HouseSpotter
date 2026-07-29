@@ -105,9 +105,17 @@ def upsert_listing(session: Session, nl: NormalizedListing) -> str:
         listing.price_qualifier = nl.price_qualifier or listing.price_qualifier
         listing.status = nl.status
         listing.payload_hash = new_hash
+        if listing.photos_enriched_at is not None and listing.image_urls != nl.image_urls:
+            # the portal's photo set changed → the enriched gallery is stale
+            listing.photos_enriched_at = None
+            listing.gallery_urls = []
+        listing.image_urls = nl.image_urls
+        if nl.floorplan_urls:
+            listing.floorplan_urls = nl.floorplan_urls
         prop = session.get(Property, listing.property_id)
         if prop:
             _update_property(prop, nl, now)
+            sync_property_media(session, prop, listing)
             session.add(prop)
         session.add(listing)
         return "updated"
@@ -138,9 +146,13 @@ def upsert_listing(session: Session, nl: NormalizedListing) -> str:
             [{"date": now.date().isoformat(), "price": nl.price}] if nl.price is not None else []
         ),
         payload_hash=new_hash,
+        image_urls=nl.image_urls,
+        floorplan_urls=nl.floorplan_urls,
         raw=nl.raw,
     )
     session.add(listing)
+    sync_property_media(session, prop, listing)
+    session.add(prop)
     return "new"
 
 
@@ -162,9 +174,23 @@ def _update_property(prop: Property, nl: NormalizedListing, now: datetime) -> No
     prop.features = _richer(nl.features, prop.features)
     if len(nl.description) > len(prop.description):
         prop.description = nl.description
-    prop.image_urls = _richer(nl.image_urls, prop.image_urls)
-    prop.floorplan_urls = _richer(nl.floorplan_urls, prop.floorplan_urls)
     prop.updated_at = now
+
+
+def sync_property_media(session: Session, prop: Property, current: Listing | None = None) -> None:
+    """Property photos/floorplans = the richest single listing's set, so one portal's
+    thin payload (e.g. Zoopla's single cover image) can never clobber a full gallery.
+    Enriched detail-page galleries take precedence over search-result sets."""
+    listings = list(session.exec(select(Listing).where(Listing.property_id == prop.id)).all())
+    if current is not None and current not in listings:
+        listings.append(current)
+    live = [l for l in listings if l.status != "removed"] or listings
+    images = max((l.gallery_urls or l.image_urls or [] for l in live), key=len, default=[])
+    floorplans = max((l.floorplan_urls or [] for l in live), key=len, default=[])
+    if images:
+        prop.image_urls = images
+    if floorplans:
+        prop.floorplan_urls = floorplans
 
 
 def mark_missing_as_removed(

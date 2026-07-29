@@ -177,7 +177,13 @@ def _to_listing(prop: dict, mode: str) -> NormalizedListing:
         floor_area_sqm=_parse_size(prop.get("displaySize")),
         features=features,
         description=prop.get("summary") or "",
-        image_urls=[img["srcUrl"] for img in (prop.get("images") or []) if img.get("srcUrl")],
+        # 'url' is the original-resolution media path; the search payload carries the
+        # full gallery (numberOfImages == len(images)), so nothing is left behind
+        image_urls=[
+            f"https://media.rightmove.co.uk/{img['url'].lstrip('/')}" if img.get("url") else img["srcUrl"]
+            for img in (prop.get("images") or [])
+            if img.get("url") or img.get("srcUrl")
+        ],
         first_listed=_parse_dt(prop.get("firstVisibleDate")),
         raw=None,  # search-result payload is large; keep DB lean
     )

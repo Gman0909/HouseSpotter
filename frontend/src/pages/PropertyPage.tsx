@@ -8,6 +8,7 @@ import type { PropertyDetail } from '../lib/types'
 import ScoreRing from '../components/ScoreRing'
 import { formatPrice } from '../components/PropertyCardView'
 import AddToListButton from '../components/AddToListButton'
+import PhotoGallery from '../components/PhotoGallery'
 import TravelPanel from '../components/TravelPanel'
 
 export default function PropertyPage() {
@@ -22,13 +23,17 @@ export default function PropertyPage() {
       api.get<PropertyDetail>(
         `/api/properties/${id}${profileId ? `?profile_id=${profileId}` : ''}`,
       ),
+    // the server fetches the full gallery in the background on first view —
+    // re-poll until it lands so the photos fill in without a manual refresh
+    refetchInterval: (query) => (query.state.data?.photos_pending ? 6000 : false),
   })
 
   // Viewing marks the property as seen server-side — refresh the cached feed so
   // the "New" badge is gone when the user navigates back
+  const loadedId = detail.data?.property.id
   useEffect(() => {
-    if (detail.data) qc.invalidateQueries({ queryKey: ['feed'] })
-  }, [detail.data, qc])
+    if (loadedId != null) qc.invalidateQueries({ queryKey: ['feed'] })
+  }, [loadedId, qc])
 
   if (detail.isLoading) return <div className="p-6 text-sm text-stone-500">Loading…</div>
   if (!detail.data) return <div className="p-6 text-sm text-stone-500">Not found.</div>
@@ -50,18 +55,11 @@ export default function PropertyPage() {
         <ArrowLeft size={16} /> Back to homes
       </Link>
 
-      {(property.image_urls ?? []).length > 0 && (
-        <div className="mb-5 grid grid-cols-2 gap-2 md:grid-cols-3">
-          {property.image_urls.slice(0, 6).map((url, i) => (
-            <img
-              key={url}
-              src={url}
-              alt=""
-              className={`w-full rounded-xl object-cover ${i === 0 ? 'col-span-2 row-span-2 aspect-[4/3] md:col-span-2' : 'aspect-[4/3]'}`}
-            />
-          ))}
-        </div>
-      )}
+      <PhotoGallery
+        images={property.image_urls ?? []}
+        floorplans={property.floorplan_urls ?? []}
+        pending={detail.data.photos_pending}
+      />
 
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
