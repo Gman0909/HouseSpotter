@@ -38,8 +38,17 @@ export default function PropertyPage() {
   if (detail.isLoading) return <div className="p-6 text-sm text-stone-500">Loading…</div>
   if (!detail.data) return <div className="p-6 text-sm text-stone-500">Not found.</div>
 
-  const { property, listings, match, area } = detail.data
-  const live = listings.find((l) => l.status !== 'removed') ?? listings[0]
+  const { property, listings, match, area, profile_mode } = detail.data
+  // A deduped property can carry both a sale and a rental listing. Lead with the
+  // listing matching the profile the user came from, newest first; other-mode
+  // listings are surfaced separately as "also listed".
+  const active = listings.filter((l) => l.status !== 'removed')
+  const pool = active.length > 0 ? active : listings
+  const inMode = profile_mode ? pool.filter((l) => l.mode === profile_mode) : pool
+  const live = [...(inMode.length > 0 ? inMode : pool)].sort((a, b) =>
+    b.last_seen.localeCompare(a.last_seen),
+  )[0]
+  const alsoListed = live ? active.filter((l) => l.mode !== live.mode) : []
 
   // Precise pin when we have coordinates; otherwise Google's best guess at the address
   const gmapsUrl =
@@ -67,6 +76,14 @@ export default function PropertyPage() {
             {live ? formatPrice({ price: live.price, mode: live.mode }) : 'POA'}
           </h1>
           <p className="mt-1 text-stone-600 dark:text-stone-400">{property.address}</p>
+          {alsoListed.map((l) => (
+            <p key={l.id} className="mt-1 text-sm text-stone-500">
+              Also listed {l.mode === 'rent' ? 'to rent' : 'for sale'} at{' '}
+              <a href={l.url} target="_blank" rel="noreferrer" className="font-medium underline hover:text-stone-700 dark:hover:text-stone-300">
+                {formatPrice({ price: l.price, mode: l.mode })} on {l.portal}
+              </a>
+            </p>
+          ))}
           <div className="mt-2 flex flex-wrap gap-2 text-xs">
             {property.beds != null && <Badge>{property.beds} bed</Badge>}
             {property.baths != null && <Badge>{property.baths} bath</Badge>}

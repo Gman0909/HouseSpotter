@@ -176,9 +176,11 @@ def get_property(property_id: int, profile_id: int | None = None, session: Sessi
     prop = session.get(Property, property_id)
     listings = session.exec(select(Listing).where(Listing.property_id == property_id)).all()
     match = None
+    profile_mode = None
     if profile_id:
         profile = session.get(SearchProfile, profile_id)
         if profile and profile.user_id == user.id:
+            profile_mode = profile.mode
             match = session.exec(
                 select(MatchScore).where(
                     MatchScore.property_id == property_id,
@@ -231,6 +233,7 @@ def get_property(property_id: int, profile_id: int | None = None, session: Sessi
         "property": prop,
         "listings": listings,
         "match": match,
+        "profile_mode": profile_mode,
         "area": area,
         "photos_pending": photos_pending,
     }

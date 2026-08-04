@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  ChevronDown, ChevronRight, History, ListChecks, Plus, RotateCcw, Settings2, Sparkles, X,
+  Ban, ChevronDown, ChevronRight, History, ListChecks, Plus, RotateCcw, Settings2, Sparkles, X,
 } from 'lucide-react'
 import { api, ApiError } from '../lib/api'
 import type { Profile } from '../lib/types'
@@ -15,6 +15,7 @@ interface ChannelReadiness {
 interface MeInfo {
   username: string
   is_admin: boolean
+  blacklisted_outcodes: string[]
   channels: {
     telegram: ChannelReadiness
     email: ChannelReadiness
@@ -156,6 +157,17 @@ export default function SettingsPage() {
       qc.invalidateQueries({ queryKey: ['profiles'] })
     },
     onError: (err) => setSaveError(err instanceof Error ? err.message : 'Delete failed'),
+  })
+
+  const saveBlacklist = useMutation({
+    mutationFn: (outcodes: string[]) => api.patch('/api/auth/me/blacklist', { outcodes }),
+    onMutate: () => setSaveError(''),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['me'] })
+      qc.invalidateQueries({ queryKey: ['profiles'] })
+      qc.invalidateQueries({ queryKey: ['feed'] })
+    },
+    onError: (err) => setSaveError(err instanceof Error ? err.message : 'Save failed'),
   })
 
   const [showAllHistory, setShowAllHistory] = useState(false)
@@ -537,6 +549,21 @@ export default function SettingsPage() {
       {profile && (
         <RequirementsCard profile={profile} save={save} vocab={vocab.data} aiReady={aiReady} />
       )}
+
+      <div className="mt-5 rounded-2xl border border-stone-200 bg-white p-5 dark:border-stone-800 dark:bg-stone-900">
+        <h2 className="mb-1 flex items-center gap-2 font-semibold">
+          <Ban size={16} /> Blacklisted areas
+        </h2>
+        <p className="mb-3 text-xs text-stone-400">
+          Postcode districts hidden from <b>every</b> search profile — e.g. CB4. You can also
+          exclude areas with one click from the Neighbourhood research page.
+        </p>
+        <ExcludedKeywordsEditor
+          terms={me.data?.blacklisted_outcodes ?? []}
+          onSave={(terms) => saveBlacklist.mutate(terms)}
+          placeholder="add outcode, press Enter…"
+        />
+      </div>
 
       {profile && (history.data?.length ?? 0) > 0 && (
         <div className="mt-5 rounded-2xl border border-stone-200 bg-white p-5 dark:border-stone-800 dark:bg-stone-900">
@@ -1039,9 +1066,11 @@ function AreaPreferences({
 function ExcludedKeywordsEditor({
   terms,
   onSave,
+  placeholder = 'add term, press Enter…',
 }: {
   terms: string[]
   onSave: (terms: string[]) => void
+  placeholder?: string
 }) {
   const [draft, setDraft] = useState('')
 
@@ -1082,7 +1111,7 @@ function ExcludedKeywordsEditor({
       </div>
       <input
         className="input w-56"
-        placeholder="add term, press Enter…"
+        placeholder={placeholder}
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         onKeyDown={(e) => {

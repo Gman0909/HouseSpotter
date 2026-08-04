@@ -7,7 +7,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 from .config import settings
 from .models import Meta, User  # noqa: F401 — import registers all models
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 engine = create_engine(
     f"sqlite:///{settings.db_path}",
@@ -241,6 +241,17 @@ def _migrate_v9_listing_media(session: Session) -> None:
     session.commit()
 
 
+def _migrate_v10_blacklisted_outcodes(session: Session) -> None:
+    """Add the per-user global outcode blacklist."""
+    from sqlalchemy.exc import OperationalError
+
+    try:
+        session.exec(text('ALTER TABLE "user" ADD COLUMN blacklisted_outcodes TEXT DEFAULT \'[]\''))
+    except OperationalError:
+        pass  # column already exists (fresh install via create_all)
+    session.commit()
+
+
 MIGRATIONS: dict[int, list] = {
     2: [_migrate_v2_area_searches],
     3: [_migrate_v3_baseline_snapshots],
@@ -250,6 +261,7 @@ MIGRATIONS: dict[int, list] = {
     7: [_migrate_v7_excluded_keywords],
     8: [_migrate_v8_fix_rent_prices],
     9: [_migrate_v9_listing_media],
+    10: [_migrate_v10_blacklisted_outcodes],
 }
 
 

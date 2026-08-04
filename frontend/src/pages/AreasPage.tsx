@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  AlertTriangle, CheckCircle2, Compass, Home, Loader2, MapPin, Plus, RefreshCw, X,
+  AlertTriangle, Ban, CheckCircle2, Compass, Home, Loader2, MapPin, Plus, RefreshCw, X,
 } from 'lucide-react'
 import { api, ApiError } from '../lib/api'
 import type { AreaInfo, AreaSearchInfo, Profile, ResearchStatus } from '../lib/types'
@@ -101,6 +101,27 @@ export default function AreasPage() {
     },
     onError: (err) => setSubmitError(err instanceof ApiError ? err.message : 'Failed to start'),
   })
+
+  const me = useQuery({
+    queryKey: ['me'],
+    queryFn: () => api.get<{ blacklisted_outcodes: string[] }>('/api/auth/me'),
+  })
+  const blacklist = me.data?.blacklisted_outcodes ?? []
+
+  const saveBlacklist = useMutation({
+    mutationFn: (outcodes: string[]) => api.patch('/api/auth/me/blacklist', { outcodes }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['me'] })
+      qc.invalidateQueries({ queryKey: ['feed'] })
+    },
+  })
+
+  function toggleBlacklist(code: string) {
+    const c = code.toUpperCase()
+    saveBlacklist.mutate(
+      blacklist.includes(c) ? blacklist.filter((x) => x !== c) : [...blacklist, c],
+    )
+  }
 
   const deleteSearch = useMutation({
     mutationFn: (searchId: number) => api.delete(`/api/areas/searches/${searchId}`),
@@ -278,16 +299,25 @@ export default function AreasPage() {
       <div className="space-y-4">
         {areas.data
           ?.filter((a) => !withMatchesOnly || a.match_count > 0)
-          .map((area, i) => (
+          .map((area, i) => {
+            const excluded = blacklist.includes(area.code.toUpperCase())
+            return (
             <div
               key={area.id}
-              className="rounded-2xl border border-stone-200 bg-white p-5 dark:border-stone-800 dark:bg-stone-900"
+              className={`rounded-2xl border border-stone-200 bg-white p-5 dark:border-stone-800 dark:bg-stone-900 ${
+                excluded ? 'opacity-60' : ''
+              }`}
             >
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <h2 className="flex items-center gap-2 font-semibold">
                     <span className="text-stone-400">#{i + 1}</span>
                     {area.name || area.code}
+                    {excluded && (
+                      <span className="rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-semibold text-red-600 dark:bg-red-950 dark:text-red-300">
+                        blacklisted
+                      </span>
+                    )}
                     <span
                       className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
                         area.match_count > 0
@@ -331,17 +361,37 @@ export default function AreasPage() {
                   {area.narrative}
                 </p>
               )}
-              {area.match_count > 0 && (
-                <Link
-                  to={`/?area=${encodeURIComponent(area.code)}`}
-                  className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-brand-700"
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                {area.match_count > 0 && !excluded && (
+                  <Link
+                    to={`/?area=${encodeURIComponent(area.code)}`}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-brand-700"
+                  >
+                    <Home size={14} />
+                    View {area.match_count} {area.match_count === 1 ? 'home' : 'homes'} in {area.code}
+                  </Link>
+                )}
+                <button
+                  onClick={() => toggleBlacklist(area.code)}
+                  disabled={saveBlacklist.isPending}
+                  title={
+                    excluded
+                      ? `Allow ${area.code} homes to match again`
+                      : `Hide all ${area.code} homes from every search profile`
+                  }
+                  className={`inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-semibold transition disabled:opacity-50 ${
+                    excluded
+                      ? 'bg-red-100 text-red-600 hover:bg-red-200 dark:bg-red-950 dark:text-red-300 dark:hover:bg-red-900'
+                      : 'border border-stone-300 text-stone-600 hover:bg-stone-100 dark:border-stone-700 dark:text-stone-300 dark:hover:bg-stone-800'
+                  }`}
                 >
-                  <Home size={14} />
-                  View {area.match_count} {area.match_count === 1 ? 'home' : 'homes'} in {area.code}
-                </Link>
-              )}
+                  <Ban size={14} />
+                  {excluded ? 'Un-blacklist' : 'Blacklist area'}
+                </button>
+              </div>
             </div>
-          ))}
+            )
+          })}
         {areas.data?.length === 0 && !running && (
           <p className="rounded-2xl border border-dashed border-stone-300 p-10 text-center text-sm text-stone-500 dark:border-stone-700">
             {selected?.source === 'profile'

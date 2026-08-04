@@ -140,6 +140,7 @@ export interface PropertyDetail {
     price_history: { date: string; price: number }[]
   }[]
   match: Match | null
+  profile_mode: string | null
   photos_pending: boolean
   area: {
     code: string

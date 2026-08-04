@@ -17,6 +17,8 @@ class User(SQLModel, table=True):
     is_admin: bool = False  # first user; can manage server settings + users
     telegram_chat_id: str = ""  # personal alert targets
     email_to: str = ""
+    # global area blacklist: outcodes ("CB4") excluded from every profile's matching
+    blacklisted_outcodes: list = Field(default_factory=list, sa_column=Column(JSON))
     created_at: datetime = Field(default_factory=utcnow)
 
 

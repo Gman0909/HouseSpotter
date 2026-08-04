@@ -1,3 +1,5 @@
+import re
+
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -112,6 +114,7 @@ def me(user: User = Depends(require_user)):
         "is_admin": user.is_admin,
         "telegram_chat_id": user.telegram_chat_id,
         "email_to": user.email_to,
+        "blacklisted_outcodes": user.blacklisted_outcodes or [],
         # channel readiness: server half (admin-configured) + this user's target
         "channels": {
             "telegram": {
@@ -141,6 +144,49 @@ def update_my_alerts(body: dict, user: User = Depends(require_user), session: Se
     session.add(user)
     session.commit()
     return {"ok": True, "telegram_chat_id": user.telegram_chat_id, "email_to": user.email_to}
+
+
+_OUTCODE_ONLY_RE = re.compile(r"^[A-Za-z]{1,2}\d{1,2}[A-Za-z]?$")
+
+
+@router.patch("/me/blacklist")
+def update_my_blacklist(body: dict, user: User = Depends(require_user), session: Session = Depends(get_session)):
+    """Replace this user's global outcode blacklist. A change invalidates every
+    profile's cached match scores (criteria_version bump) and triggers a rescore."""
+    raw = body.get("outcodes")
+    if not isinstance(raw, list):
+        raise HTTPException(422, "outcodes must be a list")
+    outcodes: list[str] = []
+    for item in raw:
+        code = str(item).strip().upper()
+        if not code:
+            continue
+        if not _OUTCODE_ONLY_RE.match(code):
+            raise HTTPException(422, f"'{code}' is not a postcode district — use the outcode only, e.g. CB4")
+        if code not in outcodes:
+            outcodes.append(code)
+
+    if outcodes == (user.blacklisted_outcodes or []):
+        return {"ok": True, "blacklisted_outcodes": outcodes}
+
+    from .history import snapshot_profile
+    from .models import SearchProfile, utcnow
+
+    user.blacklisted_outcodes = outcodes
+    session.add(user)
+    profiles = session.exec(select(SearchProfile).where(SearchProfile.user_id == user.id)).all()
+    for profile in profiles:
+        profile.criteria_version += 1
+        profile.updated_at = utcnow()
+        session.add(profile)
+    session.commit()
+
+    from .scoring.engine import rescore_profile_async
+
+    for profile in profiles:
+        snapshot_profile(session, profile, source="area blacklist")
+        rescore_profile_async(profile.id)
+    return {"ok": True, "blacklisted_outcodes": outcodes}
 
 
 @router.post("/me/detect-telegram")

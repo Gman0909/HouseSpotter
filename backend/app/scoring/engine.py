@@ -15,7 +15,7 @@ from sqlmodel import Session, select
 from ..config import settings
 from ..db import engine, session_scope
 from ..llm.client import cached_json_call, llm_available, make_cache_key
-from ..models import Listing, MatchScore, Property, SearchProfile, utcnow
+from ..models import Listing, MatchScore, Property, SearchProfile, User, utcnow
 
 log = logging.getLogger("housespotter.scoring")
 
@@ -140,6 +140,15 @@ STRUCTURED_CHECKS = {
 
 # --- Hard filters ---
 
+def _blacklisted_outcodes(user_id: int | None) -> set[str]:
+    """The profile owner's global outcode blacklist."""
+    if not user_id:
+        return set()
+    with Session(engine) as session:
+        user = session.get(User, user_id)
+    return {str(c).upper() for c in ((user.blacklisted_outcodes if user else None) or [])}
+
+
 def passes_hard_filters(prop: Property, listing: Listing, profile: SearchProfile) -> tuple[bool, str]:
     if listing.mode != profile.mode:
         return False, "wrong mode"
@@ -181,6 +190,8 @@ def passes_hard_filters(prop: Property, listing: Listing, profile: SearchProfile
             blob = _text_blob(prop)
             if any(kw in blob for kw in keywords):
                 return False, f"excluded: {label.lower()}"
+    if prop.outcode and prop.outcode.upper() in _blacklisted_outcodes(profile.user_id):
+        return False, f"blacklisted area: {prop.outcode.upper()}"
     # Free-text exclusions (areas or keywords): reject if any term matches.
     terms = list(profile.excluded_keywords or [])
     if terms:
