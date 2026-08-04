@@ -31,6 +31,7 @@ mkdir -p "$APP_DIR"
 echo "==> Copying application"
 rsync -a --delete \
   --exclude '.venv' --exclude 'node_modules' --exclude 'data' --exclude '.git' \
+  --exclude '.env' --exclude 'backups' \
   "$REPO_DIR/" "$APP_DIR/"
 mkdir -p "$APP_DIR/data" "$APP_DIR/backups"
 
