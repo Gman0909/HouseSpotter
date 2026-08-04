@@ -369,8 +369,24 @@ def _build_rationale(score: float, passed: bool, fail_reason: str, breakdown: li
     return "; ".join(parts) + "."
 
 
+# One scoring run per profile at a time: concurrent runs (e.g. two quick criteria
+# edits, each spawning a rescore) race to insert the same MatchScore rows.
+_score_locks: dict[int, threading.Lock] = {}
+_score_locks_guard = threading.Lock()
+
+
+def _profile_score_lock(profile_id: int) -> threading.Lock:
+    with _score_locks_guard:
+        return _score_locks.setdefault(profile_id, threading.Lock())
+
+
 def score_profile(profile_id: int) -> int:
     """Score all unscored (property, profile, criteria_version) pairs. Returns count scored."""
+    with _profile_score_lock(profile_id):
+        return _score_profile_locked(profile_id)
+
+
+def _score_profile_locked(profile_id: int) -> int:
     with session_scope() as session:
         profile = session.get(SearchProfile, profile_id)
         if not profile or not profile.active:
@@ -396,7 +412,10 @@ def score_profile(profile_id: int) -> int:
             seen_props.add(listing.property_id)
             todo.append((listing.property_id, listing.id))
 
+    from sqlalchemy.exc import IntegrityError
+
     count = 0
+    failures = 0
     for property_id, listing_id in todo:
         try:
             with session_scope() as session:
@@ -409,8 +428,19 @@ def score_profile(profile_id: int) -> int:
                 session.add(match)
                 session.commit()
                 count += 1
-        except Exception:
-            log.exception("Scoring failed for property %s", property_id)
+        except IntegrityError:
+            # another run already stored this (property, profile, version) — benign
+            continue
+        except Exception as exc:
+            failures += 1
+            # full traceback for the first few; a repeated systemic failure would
+            # otherwise write thousands of identical stacks to the journal
+            if failures <= 3:
+                log.exception("Scoring failed for property %s", property_id)
+            else:
+                log.warning("Scoring failed for property %s: %s", property_id, exc)
+    if failures > 3:
+        log.warning("Scoring for profile %s: %d properties failed", profile_id, failures)
     if count:
         log.info("Scored %d properties for profile %s (v%s)", count, profile_id, criteria_version)
     return count

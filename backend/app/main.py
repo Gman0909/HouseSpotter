@@ -16,6 +16,11 @@ logging.basicConfig(
 )
 log = logging.getLogger("housespotter")
 
+# The journal is persisted to the Pi's SD card with a small budget — keep
+# per-request access lines and third-party chatter out of it.
+for _noisy in ("uvicorn.access", "apscheduler", "httpx", "httpcore"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
+
 FRONTEND_DIST = BASE_DIR.parent / "frontend" / "dist"
 
 
