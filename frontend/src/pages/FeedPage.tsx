@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { LayoutGrid, Loader2, Map as MapIcon, RefreshCw, Sparkles, X } from 'lucide-react'
+import { LayoutGrid, Loader2, Map as MapIcon, RefreshCw, Search, Sparkles, X } from 'lucide-react'
 import { api } from '../lib/api'
 import type { Profile, PropertyCard } from '../lib/types'
 import PropertyCardView from '../components/PropertyCardView'
@@ -50,6 +50,7 @@ function loadFeedState(): {
   profileId?: number | null
   area?: string | null
   onlyNew?: boolean
+  search?: string
 } {
   try {
     return JSON.parse(sessionStorage.getItem(FEED_STATE_KEY) ?? '{}')
@@ -73,6 +74,13 @@ export default function FeedPage() {
   const [sort, setSort] = useState(stored.sort ?? 'score')
   const [view, setView] = useState<'grid' | 'map'>(stored.view ?? 'grid')
   const [onlyNew, setOnlyNew] = useState<boolean>(stored.onlyNew ?? false)
+  // search: what's in the box; debounced copy drives the query
+  const [search, setSearch] = useState<string>(stored.search ?? '')
+  const [debouncedSearch, setDebouncedSearch] = useState(search)
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 300)
+    return () => clearTimeout(t)
+  }, [search])
   const [searchParams, setSearchParams] = useSearchParams()
   const urlArea = searchParams.get('area')
   const [areaFilter, setAreaFilter] = useState<string | null>(urlArea ?? stored.area ?? null)
@@ -91,9 +99,9 @@ export default function FeedPage() {
   useEffect(() => {
     sessionStorage.setItem(
       FEED_STATE_KEY,
-      JSON.stringify({ sort, view, profileId, area: areaFilter, onlyNew }),
+      JSON.stringify({ sort, view, profileId, area: areaFilter, onlyNew, search }),
     )
-  }, [sort, view, profileId, areaFilter, onlyNew])
+  }, [sort, view, profileId, areaFilter, onlyNew, search])
 
   // Scroll persistence: save as the user scrolls, restore once the feed has rendered
   const restoredScroll = useRef(false)
@@ -126,10 +134,10 @@ export default function FeedPage() {
   const isMap = view === 'map'
   const feedLimit = 2000
   const feed = useQuery({
-    queryKey: ['feed', activeProfile?.id ?? 'all', sort, areaFilter, feedLimit, isMap],
+    queryKey: ['feed', activeProfile?.id ?? 'all', sort, areaFilter, feedLimit, isMap, debouncedSearch],
     queryFn: () =>
       api.get<{ total: number; items: PropertyCard[] }>(
-        `/api/properties?sort=${sort}&limit=${feedLimit}${activeProfile ? `&profile_id=${activeProfile.id}` : ''}${areaFilter ? `&outcode=${encodeURIComponent(areaFilter)}` : ''}${isMap ? '&include_saved=true' : ''}`,
+        `/api/properties?sort=${sort}&limit=${feedLimit}${activeProfile ? `&profile_id=${activeProfile.id}` : ''}${areaFilter ? `&outcode=${encodeURIComponent(areaFilter)}` : ''}${isMap ? '&include_saved=true' : ''}${debouncedSearch ? `&q=${encodeURIComponent(debouncedSearch)}` : ''}`,
       ),
     refetchInterval: scanning ? 10000 : false,
   })
@@ -192,6 +200,25 @@ export default function FeedPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <div className="relative">
+            <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search address, description…"
+              title="Filter matches by keyword — address, postcode, description and features; multiple words must all match"
+              className="w-48 rounded-lg border border-stone-300 bg-white py-1.5 pl-8 pr-7 text-sm outline-none focus:border-brand-500 sm:w-56 dark:border-stone-700 dark:bg-stone-900"
+            />
+            {search && (
+              <button
+                onClick={() => setSearch('')}
+                aria-label="Clear search"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600 dark:hover:text-stone-200"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
           <button
             onClick={() => scanNow.mutate()}
             disabled={scanning}
@@ -307,9 +334,18 @@ export default function FeedPage() {
 
       {feed.data && feed.data.items.length === 0 && profiles.data && profiles.data.length > 0 && (
         <div className="rounded-2xl border border-dashed border-stone-300 p-10 text-center text-sm text-stone-500 dark:border-stone-700">
-          {scanning
-            ? 'Scan in progress — matches will appear here shortly.'
-            : 'Nothing found yet — hit "Scan now" above, or wait for the next automatic scan.'}
+          {debouncedSearch ? (
+            <>
+              No matches contain “{debouncedSearch}”.{' '}
+              <button onClick={() => setSearch('')} className="font-semibold text-brand-600 hover:underline">
+                Clear search
+              </button>
+            </>
+          ) : scanning ? (
+            'Scan in progress — matches will appear here shortly.'
+          ) : (
+            'Nothing found yet — hit "Scan now" above, or wait for the next automatic scan.'
+          )}
         </div>
       )}
 

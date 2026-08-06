@@ -53,6 +53,7 @@ def list_properties(
     sort: str = Query("score", pattern="^(score|newest|price_asc|price_desc|access)$"),
     min_score: float = 0,
     outcode: str | None = None,
+    q: str | None = None,
     include_filtered: bool = False,
     include_saved: bool = False,
     limit: int = Query(60, le=2000),
@@ -84,12 +85,27 @@ def list_properties(
 
     from ..research.travel import access_scores
 
+    # Keyword search: every whitespace-separated term must appear somewhere in the
+    # property's text (address, postcode, description, features).
+    terms = [t.lower() for t in (q or "").split() if t.strip()]
+
+    def matches_terms(prop: Property) -> bool:
+        if not terms:
+            return True
+        blob = " ".join(
+            [prop.address, prop.postcode or "", prop.outcode or "", prop.description]
+            + [str(f) for f in (prop.features or [])]
+        ).lower()
+        return all(t in blob for t in terms)
+
     visible: list[tuple[Property, Listing, MatchScore | None]] = []
     for prop in props:
         listing = listings_by_prop.get(prop.id)
         if listing is None:
             continue
         if outcode and prop.outcode != outcode.upper():
+            continue
+        if not matches_terms(prop):
             continue
         match = matches.get(prop.id)
         if profile:
@@ -126,7 +142,7 @@ def list_properties(
             for pid in saved_ids - matched_ids:
                 prop = session.get(Property, pid)
                 listing = listings_by_prop.get(pid)
-                if prop and listing and prop.lat is not None and listing.mode == profile.mode:
+                if prop and listing and prop.lat is not None and listing.mode == profile.mode and matches_terms(prop):
                     extra.append((prop, listing, None))
 
     all_rows = visible + extra
