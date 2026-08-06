@@ -151,8 +151,16 @@ def _enrich_listing(session, listing: Listing) -> None:
     session.add(listing)
     prop = session.get(Property, listing.property_id)
     if prop:
-        if furnish and listing.mode == "rent":
+        if furnish and listing.mode == "rent" and prop.furnish_type != furnish:
             prop.furnish_type = furnish
+            # cached scores were computed without this fact — drop them so the
+            # next scoring pass (post-enrich, boot, or poll) re-judges the property
+            from ..models import MatchScore
+
+            for stale in session.exec(
+                select(MatchScore).where(MatchScore.property_id == prop.id)
+            ).all():
+                session.delete(stale)
         sync_property_media(session, prop, listing)
         session.add(prop)
 
@@ -194,7 +202,19 @@ def enrich_pending(limit: int = BATCH_LIMIT) -> int:
             done += 1
     if done:
         log.info("photo enrichment: %d listings enriched", done)
+        _rescore_after_enrich()
     return done
+
+
+def _rescore_after_enrich() -> None:
+    """Refill any scores dropped by furnish-type discoveries (no-op otherwise)."""
+    from ..models import SearchProfile
+    from ..scoring.engine import rescore_profile_async
+
+    with session_scope() as session:
+        ids = [p.id for p in session.exec(select(SearchProfile).where(SearchProfile.active)).all()]
+    for profile_id in ids:
+        rescore_profile_async(profile_id)
 
 
 # ---- On-demand enrichment when a property page is opened ----
@@ -215,6 +235,9 @@ def enrich_property(property_id: int) -> None:
                 log.warning("on-demand enrichment blocked: %s", exc)
                 break
         session.commit()
+        enriched_any = bool(listings)
+    if enriched_any:
+        _rescore_after_enrich()
 
 
 def enrich_property_async(property_id: int) -> None:
