@@ -133,9 +133,12 @@ ENRICHERS = {
 
 
 def _enrich_listing(session, listing: Listing) -> None:
-    """One detail-page fetch → store gallery + floorplans, resync the property.
-    Raises PortalBlockedError; all other failures mark the listing enriched anyway
-    (keeping its search photos) so it isn't retried forever."""
+    """One detail-page fetch → store gallery + floorplans + furnish state, resync
+    the property. Raises PortalBlockedError. Network/HTTP failures are retried on
+    later cycles (portals serve occasional bogus 410s; a truly-gone listing stops
+    being retried once the grace period marks it removed). Parse failures mark the
+    listing enriched anyway (keeping its search photos) so a markup change doesn't
+    retry the whole backlog forever."""
     furnish = None
     try:
         images, floorplans, furnish = ENRICHERS[listing.portal](listing)
@@ -145,7 +148,13 @@ def _enrich_listing(session, listing: Listing) -> None:
             listing.floorplan_urls = floorplans
     except PortalBlockedError:
         raise
-    except (httpx.HTTPError, ValueError, KeyError) as exc:
+    except httpx.HTTPError as exc:
+        log.warning(
+            "enrich failed for %s %s (will retry next cycle): %s",
+            listing.portal, listing.portal_id, exc,
+        )
+        return
+    except (ValueError, KeyError) as exc:
         log.warning("enrich failed for %s %s: %s", listing.portal, listing.portal_id, exc)
     listing.photos_enriched_at = utcnow()
     session.add(listing)
