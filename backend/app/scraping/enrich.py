@@ -66,7 +66,22 @@ def _decode_page_model(html: str) -> dict:
     return root if isinstance(root, dict) else {}
 
 
-def _rightmove_media(listing: Listing) -> tuple[list[str], list[str]]:
+def normalize_furnish(text: str | None) -> str | None:
+    """Portal phrasing → furnished | unfurnished | part-furnished | flexible.
+    Handles Rightmove's 'Furnished or unfurnished, landlord is flexible'."""
+    t = (text or "").lower()
+    if "furnish" not in t:
+        return None
+    if "part" in t:
+        return "part-furnished"
+    if "unfurnished" in t and re.search(r"(?<!un)furnished", t):
+        return "flexible"
+    if "unfurnished" in t:
+        return "unfurnished"
+    return "furnished"
+
+
+def _rightmove_media(listing: Listing) -> tuple[list[str], list[str], str | None]:
     resp = fetch("rightmove", listing.url)
     pd = _decode_page_model(resp.text).get("propertyData") or {}
     images = [
@@ -77,10 +92,11 @@ def _rightmove_media(listing: Listing) -> tuple[list[str], list[str]]:
         fp["url"] for fp in pd.get("floorplans") or []
         if isinstance(fp, dict) and fp.get("url") and fp.get("type") in (None, "IMAGE")
     ]
-    return images, floorplans
+    furnish = normalize_furnish((pd.get("lettings") or {}).get("furnishType"))
+    return images, floorplans, furnish
 
 
-def _onthemarket_media(listing: Listing) -> tuple[list[str], list[str]]:
+def _onthemarket_media(listing: Listing) -> tuple[list[str], list[str], str | None]:
     resp = fetch("onthemarket", listing.url)
     m = _NEXT_DATA_RE.search(resp.text)
     if not m:
@@ -96,7 +112,16 @@ def _onthemarket_media(listing: Listing) -> tuple[list[str], list[str]]:
         for fp in prop.get("floorplans") or []
         if isinstance(fp, dict) and (fp.get("original") or fp.get("largeUrl") or fp.get("url"))
     ]
-    return images, floorplans
+    # lettingDetails.items is a bullet list like ["Available now", "Part furnished"]
+    furnish = next(
+        (
+            normalize_furnish(str(item))
+            for item in (prop.get("lettingDetails") or {}).get("items") or []
+            if "furnish" in str(item).lower()
+        ),
+        None,
+    )
+    return images, floorplans, furnish
 
 
 # Zoopla is playwright-gated and Purplebricks galleries are derived in its adapter,
@@ -111,8 +136,9 @@ def _enrich_listing(session, listing: Listing) -> None:
     """One detail-page fetch → store gallery + floorplans, resync the property.
     Raises PortalBlockedError; all other failures mark the listing enriched anyway
     (keeping its search photos) so it isn't retried forever."""
+    furnish = None
     try:
-        images, floorplans = ENRICHERS[listing.portal](listing)
+        images, floorplans, furnish = ENRICHERS[listing.portal](listing)
         if images:
             listing.gallery_urls = images
         if floorplans:
@@ -125,6 +151,8 @@ def _enrich_listing(session, listing: Listing) -> None:
     session.add(listing)
     prop = session.get(Property, listing.property_id)
     if prop:
+        if furnish and listing.mode == "rent":
+            prop.furnish_type = furnish
         sync_property_media(session, prop, listing)
         session.add(prop)
 

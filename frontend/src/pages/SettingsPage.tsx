@@ -24,7 +24,7 @@ interface MeInfo {
 }
 
 interface Vocabulary {
-  criteria: { key: string; label: string }[]
+  criteria: { key: string; label: string; modes?: string[] }[]
   exclusions: { key: string; label: string }[]
   property_types: string[]
   tenures: string[]
@@ -38,6 +38,8 @@ const CRITERIA_LABELS: Record<string, string> = {
   chain_free: 'Chain-free',
   new_build: 'New build',
   ensuite: 'En-suite',
+  furnished: 'Furnished',
+  unfurnished: 'Unfurnished',
   epc_c: 'EPC C or better',
   near_station: 'Near a train station',
   value: 'Price value',
@@ -814,7 +816,7 @@ function RequirementsCard({
 
   const activeMusts = Object.entries(profile.must_haves ?? {}).filter(([, v]) => v).map(([k]) => k)
   const usedNiceKeys = new Set((profile.nice_to_haves ?? []).filter((c) => c.key).map((c) => c.key))
-  const criteria = vocab?.criteria ?? []
+  const criteria = (vocab?.criteria ?? []).filter((c) => !c.modes || c.modes.includes(profile.mode))
   const mustCandidates = criteria.filter((c) => !activeMusts.includes(c.key) && !['extra_beds', 'milestone_access'].includes(c.key))
   const niceCandidates = criteria.filter((c) => !usedNiceKeys.has(c.key))
 

@@ -28,12 +28,12 @@ def list_profiles(session: Session = Depends(get_session), user: User = Depends(
 def criteria_vocabulary(_user: User = Depends(require_user)):
     """The validated criterion vocabulary — single source of truth is the scoring
     engine's check registry, so the UI can never offer an uncheckable criterion."""
-    from ..scoring.engine import EXCLUSION_CHECKS, STRUCTURED_CHECKS
+    from ..scoring.engine import CRITERIA_MODES, EXCLUSION_CHECKS, STRUCTURED_CHECKS
 
     return {
         # 'value' is auto-applied to every profile — not offered in the palette
         "criteria": [
-            {"key": key, "label": label}
+            {"key": key, "label": label, "modes": CRITERIA_MODES.get(key, ["buy", "rent"])}
             for key, (_check, label) in STRUCTURED_CHECKS.items()
             if key != "value"
         ],

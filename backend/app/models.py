@@ -82,6 +82,8 @@ class Property(SQLModel, table=True):
     baths: Optional[int] = None
     property_type: Optional[str] = None  # normalized taxonomy
     tenure: Optional[str] = None
+    # rentals: furnished | unfurnished | part-furnished | flexible (from portal detail pages)
+    furnish_type: Optional[str] = None
     floor_area_sqm: Optional[float] = None
     epc: Optional[str] = None
     features: list = Field(default_factory=list, sa_column=Column(JSON))

@@ -68,6 +68,30 @@ def _keyword_check(keywords: list[str], exclude: list[str] | None = None):
         return 0.0, "not mentioned"
     return check
 
+def _infer_furnish(prop: Property) -> str | None:
+    """Furnish state: the enriched portal field first, listing text as fallback."""
+    if prop.furnish_type:
+        return prop.furnish_type
+    from ..scraping.enrich import normalize_furnish
+
+    blob = _text_blob(prop).replace("un-furnished", "unfurnished")
+    m = re.search(r"(part[ -]furnished|furnished or unfurnished|unfurnished|(?<!un)furnished)", blob)
+    return normalize_furnish(m.group(0)) if m else None
+
+
+def _furnish_check(want: str):  # "furnished" | "unfurnished"
+    def check(prop: Property, listing: Listing, profile: SearchProfile):
+        state = _infer_furnish(prop)
+        if state is None:
+            return 0.5, "not stated"
+        if state == want or state == "flexible":
+            return 1.0, state.replace("-", " ")
+        if state == "part-furnished":
+            return 0.5, "part furnished"
+        return 0.0, state.replace("-", " ")
+    return check
+
+
 def _epc_check(min_grade: str):
     def check(prop: Property, listing: Listing, profile: SearchProfile):
         if not prop.epc:
@@ -130,11 +154,20 @@ STRUCTURED_CHECKS = {
     "new_build": (_keyword_check(["new build", "new-build", "new home", "newly built"]), "New build"),
     "garage": (_keyword_check(["garage"]), "Garage"),
     "ensuite": (_keyword_check(["ensuite", "en-suite", "en suite"]), "En-suite"),
+    "furnished": (_furnish_check("furnished"), "Furnished"),
+    "unfurnished": (_furnish_check("unfurnished"), "Unfurnished"),
     "epc_c": (_epc_check("C"), "EPC C or better"),
     "near_station": (_near_station_check, "Near a train station"),
     "value": (_value_check, "Price value"),
     "extra_beds": (_beds_bonus_check, "Extra bedrooms"),
     "milestone_access": (_milestone_access_check, "Milestone access"),
+}
+
+# Criteria that only make sense for one search mode; everything else is offered for both.
+CRITERIA_MODES: dict[str, list[str]] = {
+    "furnished": ["rent"],
+    "unfurnished": ["rent"],
+    "chain_free": ["buy"],
 }
 
 

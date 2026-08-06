@@ -7,7 +7,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 from .config import settings
 from .models import Meta, User  # noqa: F401 — import registers all models
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 engine = create_engine(
     f"sqlite:///{settings.db_path}",
@@ -252,6 +252,24 @@ def _migrate_v10_blacklisted_outcodes(session: Session) -> None:
     session.commit()
 
 
+def _migrate_v11_furnish_type(session: Session) -> None:
+    """Property.furnish_type for rentals, plus a re-enrich pass to backfill it:
+    clearing photos_enriched_at on live rent listings makes the enrichment batch
+    revisit their detail pages (galleries are kept — enrich only adds data)."""
+    from sqlalchemy.exc import OperationalError
+
+    try:
+        session.exec(text("ALTER TABLE property ADD COLUMN furnish_type VARCHAR"))
+    except OperationalError:
+        pass  # column already exists (fresh install via create_all)
+    session.exec(text(
+        "UPDATE listing SET photos_enriched_at = NULL "
+        "WHERE mode = 'rent' AND status != 'removed' "
+        "AND portal IN ('rightmove', 'onthemarket')"
+    ))
+    session.commit()
+
+
 MIGRATIONS: dict[int, list] = {
     2: [_migrate_v2_area_searches],
     3: [_migrate_v3_baseline_snapshots],
@@ -262,6 +280,7 @@ MIGRATIONS: dict[int, list] = {
     8: [_migrate_v8_fix_rent_prices],
     9: [_migrate_v9_listing_media],
     10: [_migrate_v10_blacklisted_outcodes],
+    11: [_migrate_v11_furnish_type],
 }
 
 
