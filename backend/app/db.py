@@ -7,7 +7,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 from .config import settings
 from .models import Meta, User  # noqa: F401 — import registers all models
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 engine = create_engine(
     f"sqlite:///{settings.db_path}",
@@ -270,6 +270,17 @@ def _migrate_v11_furnish_type(session: Session) -> None:
     session.commit()
 
 
+def _migrate_v12_strict_furnish_rescore(session: Session) -> None:
+    """The furnish check became strict (unknown now fails a must-have gate);
+    invalidate cached scores for profiles that gate on it. The boot-time
+    catch-up rescore refills them immediately."""
+    session.exec(text(
+        "UPDATE searchprofile SET criteria_version = criteria_version + 1 "
+        "WHERE must_haves LIKE '%furnished%'"
+    ))
+    session.commit()
+
+
 MIGRATIONS: dict[int, list] = {
     2: [_migrate_v2_area_searches],
     3: [_migrate_v3_baseline_snapshots],
@@ -281,6 +292,7 @@ MIGRATIONS: dict[int, list] = {
     9: [_migrate_v9_listing_media],
     10: [_migrate_v10_blacklisted_outcodes],
     11: [_migrate_v11_furnish_type],
+    12: [_migrate_v12_strict_furnish_rescore],
 }
 
 

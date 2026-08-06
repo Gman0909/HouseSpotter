@@ -28,6 +28,18 @@ FRONTEND_DIST = BASE_DIR.parent / "frontend" / "dist"
 async def lifespan(app: FastAPI):
     init_db()
     log.info("HouseSpotter up — db=%s", settings.db_path)
+    # Catch-up scoring: anything unscored at each profile's current criteria version
+    # (e.g. after a migration bumped versions) is rescored now rather than waiting
+    # for the next poll cycle. No-op when everything is already scored.
+    from sqlmodel import Session, select
+
+    from .db import engine
+    from .models import SearchProfile
+    from .scoring.engine import rescore_profile_async
+
+    with Session(engine) as session:
+        for profile in session.exec(select(SearchProfile).where(SearchProfile.active)).all():
+            rescore_profile_async(profile.id)
     from .scheduler import start_scheduler, stop_scheduler
 
     start_scheduler()

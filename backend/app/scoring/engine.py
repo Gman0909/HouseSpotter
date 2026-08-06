@@ -83,7 +83,9 @@ def _furnish_check(want: str):  # "furnished" | "unfurnished"
     def check(prop: Property, listing: Listing, profile: SearchProfile):
         state = _infer_furnish(prop)
         if state is None:
-            return 0.5, "not stated"
+            # strict: as a must-have, only a CONFIRMED state may pass the gate —
+            # portals that carry the field get backfilled by enrichment anyway
+            return 0.0, "not stated"
         if state == want or state == "flexible":
             return 1.0, state.replace("-", " ")
         if state == "part-furnished":
