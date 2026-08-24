@@ -7,7 +7,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 from .config import settings
 from .models import Meta, User  # noqa: F401 — import registers all models
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 14
 
 engine = create_engine(
     f"sqlite:///{settings.db_path}",
@@ -281,13 +281,141 @@ def _migrate_v12_strict_furnish_rescore(session: Session) -> None:
     session.commit()
 
 
-def _migrate_v13_reenrich_onthemarket(session: Session) -> None:
-    """OTM added attributes to its __NEXT_DATA__ script tag, which broke detail-page
-    parsing — those listings were marked enriched with no furnish state (and search
-    photos only). Clear the marker so the fixed parser revisits them."""
+def _migrate_v13_split_merged_developments(session: Session) -> None:
+    """Split chimera properties created before the normalizer's merge guards existed.
+
+    New-build developments advertise many units (and rentals) under one marketing
+    address and one map pin, so distinct homes were merged into a single property
+    showing conflicting prices and another unit's photos. Listings are re-clustered
+    by (mode, price ±5%); the strongest cluster keeps the property id, the others
+    move to new sibling properties. Cached scores for touched properties are
+    dropped — the boot-time catch-up rescore refills them immediately."""
+    import json
+
+    tolerance = 0.05
+    conn = session.connection()
+    rows = conn.execute(text(
+        "SELECT id, property_id, portal, portal_id, mode, price, status, last_seen, "
+        "image_urls, gallery_urls, floorplan_urls FROM listing "
+        "ORDER BY property_id, price"
+    )).mappings().all()
+    by_prop: dict[int, list] = {}
+    for row in rows:
+        by_prop.setdefault(row["property_id"], []).append(row)
+
+    def _cluster(listings):
+        clusters: list[dict] = []
+        for lst in listings:
+            target = None
+            for c in clusters:
+                if c["mode"] != lst["mode"]:
+                    continue
+                # two live listings on one portal are always distinct units
+                if lst["status"] != "removed" and any(
+                    r["portal"] == lst["portal"] and r["status"] != "removed"
+                    for r in c["rows"]
+                ):
+                    continue
+                anchor = c["anchor_price"]
+                if lst["price"] is None or anchor is None or (
+                    abs(anchor - lst["price"]) <= tolerance * max(anchor, lst["price"])
+                ):
+                    target = c
+                    break
+            if target is None:
+                target = {"mode": lst["mode"], "anchor_price": None, "rows": []}
+                clusters.append(target)
+            if target["anchor_price"] is None:
+                target["anchor_price"] = lst["price"]
+            target["rows"].append(lst)
+        return clusters
+
+    def _set_media(prop_id: int, cluster_rows) -> None:
+        # mirrors normalizer.sync_property_media: richest single live listing's set
+        live = [r for r in cluster_rows if r["status"] != "removed"] or cluster_rows
+        def galleries(field_a, field_b=None):
+            for r in live:
+                urls = json.loads(r[field_a] or "[]")
+                if not urls and field_b:
+                    urls = json.loads(r[field_b] or "[]")
+                yield urls
+        images = max(galleries("gallery_urls", "image_urls"), key=len, default=[])
+        floorplans = max(galleries("floorplan_urls"), key=len, default=[])
+        conn.execute(
+            text("UPDATE property SET image_urls = :img, floorplan_urls = :fp WHERE id = :id"),
+            {"img": json.dumps(images), "fp": json.dumps(floorplans), "id": prop_id},
+        )
+
+    split = 0
+    for prop_id, listings in by_prop.items():
+        clusters = _cluster(listings)
+        if len(clusters) < 2:
+            continue
+
+        def rank(c):
+            live = [r for r in c["rows"] if r["status"] != "removed"]
+            newest = max((r["last_seen"] or "") for r in c["rows"])
+            return (len(live), len(c["rows"]), str(newest))
+
+        clusters.sort(key=rank, reverse=True)
+        keeper, rest = clusters[0], clusters[1:]
+        base_key = conn.execute(
+            text("SELECT dedupe_key FROM property WHERE id = :id"), {"id": prop_id}
+        ).scalar()
+        for c in rest:
+            tag = c["rows"][0]
+            new_key = f"{base_key}:{tag['portal']}:{tag['portal_id']}"
+            result = conn.execute(text(
+                "INSERT INTO property (dedupe_key, address, postcode, outcode, lat, lng, "
+                "beds, baths, property_type, tenure, furnish_type, floor_area_sqm, epc, "
+                "features, description, image_urls, floorplan_urls, created_at, updated_at) "
+                "SELECT :key, address, postcode, outcode, lat, lng, beds, baths, "
+                "property_type, tenure, furnish_type, floor_area_sqm, epc, features, "
+                "description, '[]', '[]', created_at, updated_at "
+                "FROM property WHERE id = :id"
+            ), {"key": new_key, "id": prop_id})
+            new_id = result.lastrowid
+            ids = ",".join(str(int(r["id"])) for r in c["rows"])
+            conn.execute(
+                text(f"UPDATE listing SET property_id = :new WHERE id IN ({ids})"),
+                {"new": new_id},
+            )
+            # siblings share the same coordinates — station/travel caches carry over
+            conn.execute(text(
+                "INSERT INTO propertystation (property_id, station_id, walk_minutes, km, "
+                "provider, computed_at) "
+                "SELECT :new, station_id, walk_minutes, km, provider, computed_at "
+                "FROM propertystation WHERE property_id = :old"
+            ), {"new": new_id, "old": prop_id})
+            conn.execute(text(
+                "INSERT INTO traveltime (property_id, milestone_id, mode, minutes, km, "
+                "provider, computed_at) "
+                "SELECT :new, milestone_id, mode, minutes, km, provider, computed_at "
+                "FROM traveltime WHERE property_id = :old"
+            ), {"new": new_id, "old": prop_id})
+            _set_media(new_id, c["rows"])
+        _set_media(prop_id, keeper["rows"])
+        # chimera scores were computed from mixed listings — drop and let the
+        # boot catch-up rescore refill them
+        conn.execute(text("DELETE FROM matchscore WHERE property_id = :id"), {"id": prop_id})
+        split += 1
+    session.commit()
+    if split:
+        import logging
+
+        logging.getLogger("housespotter.db").info(
+            "v13: split %d merged development properties", split
+        )
+
+
+def _migrate_v14_reenrich_onthemarket_furnish(session: Session) -> None:
+    """OTM now often states furnish in the features list rather than lettingDetails —
+    listings enriched before the parser read features have no furnish state. Clear
+    the enriched marker on live rentals still missing it so they get revisited."""
     session.exec(text(
         "UPDATE listing SET photos_enriched_at = NULL "
-        "WHERE portal = 'onthemarket' AND status != 'removed'"
+        "WHERE portal = 'onthemarket' AND mode = 'rent' AND status != 'removed' "
+        "AND property_id IN (SELECT id FROM property WHERE furnish_type IS NULL)"
     ))
     session.commit()
 
@@ -304,7 +432,8 @@ MIGRATIONS: dict[int, list] = {
     10: [_migrate_v10_blacklisted_outcodes],
     11: [_migrate_v11_furnish_type],
     12: [_migrate_v12_strict_furnish_rescore],
-    13: [_migrate_v13_reenrich_onthemarket],
+    13: [_migrate_v13_split_merged_developments],
+    14: [_migrate_v14_reenrich_onthemarket_furnish],
 }
 
 

@@ -111,9 +111,8 @@ def _to_listing(prop: dict, mode: str) -> NormalizedListing:
 
 
 def _extract_results(html: str) -> dict:
-    m = re.search(
-        r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', html, re.S
-    )
+    # attribute-order tolerant: OTM added crossorigin="anonymous" in Aug 2026
+    m = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', html, re.S)
     if not m:
         raise ValueError("onthemarket: __NEXT_DATA__ not found")
     return json.loads(m.group(1))["props"]["initialReduxState"]["results"]
@@ -192,7 +191,11 @@ class OnTheMarketAdapter:
                     results.append(_to_listing(prop, profile.mode))
                 except Exception:
                     log.exception("onthemarket: failed to normalize %s", prop.get("id"))
-            total = int(data.get("totalResults") or 0)
+            total = int(
+                data.get("totalResults")
+                or (data.get("paginationControls") or {}).get("total-count")
+                or 0
+            )
             if page * 30 >= total or not props:
                 break
         log.info("onthemarket: %s @ %s → %d listings", profile.mode, location["label"], len(results))

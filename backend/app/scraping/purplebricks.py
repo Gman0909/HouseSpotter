@@ -69,7 +69,7 @@ def _norm_type(title: str | None) -> str | None:
 
 def _extract_result_data(html: str) -> dict:
     m = re.search(
-        r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', html, re.S
+        r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', html, re.S
     )
     if not m:
         raise ValueError("purplebricks: __NEXT_DATA__ not found")

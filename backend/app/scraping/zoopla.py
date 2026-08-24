@@ -158,7 +158,7 @@ class ZooplaAdapter:
             url = f"{BASE}/{channel}/property/{slug}/" + (f"?{qs}" if qs else "")
             html = _fetch_rendered(url)
             m = re.search(
-                r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', html, re.S
+                r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', html, re.S
             )
             if not m:
                 break

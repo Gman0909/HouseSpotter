@@ -132,7 +132,7 @@ def _parse_dt(value: str | None) -> datetime | None:
 
 def _extract_next_data(html: str) -> dict:
     m = re.search(
-        r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', html, re.S
+        r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', html, re.S
     )
     if not m:
         raise ValueError("rightmove: __NEXT_DATA__ not found in page")
