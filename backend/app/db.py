@@ -281,6 +281,17 @@ def _migrate_v12_strict_furnish_rescore(session: Session) -> None:
     session.commit()
 
 
+def _migrate_v13_reenrich_onthemarket(session: Session) -> None:
+    """OTM added attributes to its __NEXT_DATA__ script tag, which broke detail-page
+    parsing — those listings were marked enriched with no furnish state (and search
+    photos only). Clear the marker so the fixed parser revisits them."""
+    session.exec(text(
+        "UPDATE listing SET photos_enriched_at = NULL "
+        "WHERE portal = 'onthemarket' AND status != 'removed'"
+    ))
+    session.commit()
+
+
 MIGRATIONS: dict[int, list] = {
     2: [_migrate_v2_area_searches],
     3: [_migrate_v3_baseline_snapshots],
@@ -293,6 +304,7 @@ MIGRATIONS: dict[int, list] = {
     10: [_migrate_v10_blacklisted_outcodes],
     11: [_migrate_v11_furnish_type],
     12: [_migrate_v12_strict_furnish_rescore],
+    13: [_migrate_v13_reenrich_onthemarket],
 }
 
 

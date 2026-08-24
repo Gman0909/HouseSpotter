@@ -6,7 +6,7 @@ import { ArrowLeft, Check, ExternalLink, MapPin } from 'lucide-react'
 import { api } from '../lib/api'
 import type { PropertyDetail } from '../lib/types'
 import ScoreRing from '../components/ScoreRing'
-import { formatPrice } from '../components/PropertyCardView'
+import { formatPrice, furnishLabel } from '../components/PropertyCardView'
 import AddToListButton from '../components/AddToListButton'
 import PhotoGallery from '../components/PhotoGallery'
 import TravelPanel from '../components/TravelPanel'
@@ -38,7 +38,7 @@ export default function PropertyPage() {
   if (detail.isLoading) return <div className="p-6 text-sm text-stone-500">Loading…</div>
   if (!detail.data) return <div className="p-6 text-sm text-stone-500">Not found.</div>
 
-  const { property, listings, match, area, profile_mode } = detail.data
+  const { property, listings, match, area, profile_mode, furnish_type } = detail.data
   // A deduped property can carry both a sale and a rental listing. Lead with the
   // listing matching the profile the user came from, newest first; other-mode
   // listings are surfaced separately as "also listed".
@@ -88,6 +88,7 @@ export default function PropertyPage() {
             {property.beds != null && <Badge>{property.beds} bed</Badge>}
             {property.baths != null && <Badge>{property.baths} bath</Badge>}
             {property.property_type && <Badge>{property.property_type}</Badge>}
+            {furnish_type && <Badge>{furnishLabel(furnish_type)}</Badge>}
             {property.tenure && <Badge>{property.tenure}</Badge>}
             {property.epc && <Badge>EPC {property.epc}</Badge>}
             {property.floor_area_sqm && <Badge>{Math.round(property.floor_area_sqm)} m²</Badge>}

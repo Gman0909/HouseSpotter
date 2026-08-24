@@ -54,6 +54,10 @@ export function ScrubGallery({ images, alt, className }: { images: string[]; alt
   )
 }
 
+export function furnishLabel(state: string): string {
+  return state === 'flexible' ? 'furnished or not' : state.replace('-', ' ')
+}
+
 function isNew(firstSeen: string | null): boolean {
   if (!firstSeen) return false
   return Date.now() - new Date(firstSeen).getTime() < 48 * 3600 * 1000
@@ -129,6 +133,9 @@ export default function PropertyCardView({
             </span>
           )}
           {card.property_type && <span className="capitalize">{card.property_type}</span>}
+          {card.mode === 'rent' && card.furnish_type && (
+            <span className="capitalize">{furnishLabel(card.furnish_type)}</span>
+          )}
           {card.epc && <span>EPC {card.epc}</span>}
           {card.station_walk_minutes !== null && card.station_walk_minutes <= 25 && (
             <span

@@ -51,6 +51,7 @@ function loadFeedState(): {
   area?: string | null
   onlyNew?: boolean
   search?: string
+  furnish?: string
 } {
   try {
     return JSON.parse(sessionStorage.getItem(FEED_STATE_KEY) ?? '{}')
@@ -74,6 +75,8 @@ export default function FeedPage() {
   const [sort, setSort] = useState(stored.sort ?? 'score')
   const [view, setView] = useState<'grid' | 'map'>(stored.view ?? 'grid')
   const [onlyNew, setOnlyNew] = useState<boolean>(stored.onlyNew ?? false)
+  // rentals only: '' = any, or furnished | unfurnished | part-furnished
+  const [furnish, setFurnish] = useState<string>(stored.furnish ?? '')
   // search: what's in the box; debounced copy drives the query
   const [search, setSearch] = useState<string>(stored.search ?? '')
   const [debouncedSearch, setDebouncedSearch] = useState(search)
@@ -99,9 +102,9 @@ export default function FeedPage() {
   useEffect(() => {
     sessionStorage.setItem(
       FEED_STATE_KEY,
-      JSON.stringify({ sort, view, profileId, area: areaFilter, onlyNew, search }),
+      JSON.stringify({ sort, view, profileId, area: areaFilter, onlyNew, search, furnish }),
     )
-  }, [sort, view, profileId, areaFilter, onlyNew, search])
+  }, [sort, view, profileId, areaFilter, onlyNew, search, furnish])
 
   // Scroll persistence: save as the user scrolls, restore once the feed has rendered
   const restoredScroll = useRef(false)
@@ -133,11 +136,13 @@ export default function FeedPage() {
   // that no longer match the profile.
   const isMap = view === 'map'
   const feedLimit = 2000
+  const isRent = activeProfile?.mode === 'rent'
+  const furnishParam = isRent ? furnish : ''
   const feed = useQuery({
-    queryKey: ['feed', activeProfile?.id ?? 'all', sort, areaFilter, feedLimit, isMap, debouncedSearch],
+    queryKey: ['feed', activeProfile?.id ?? 'all', sort, areaFilter, feedLimit, isMap, debouncedSearch, furnishParam],
     queryFn: () =>
       api.get<{ total: number; items: PropertyCard[] }>(
-        `/api/properties?sort=${sort}&limit=${feedLimit}${activeProfile ? `&profile_id=${activeProfile.id}` : ''}${areaFilter ? `&outcode=${encodeURIComponent(areaFilter)}` : ''}${isMap ? '&include_saved=true' : ''}${debouncedSearch ? `&q=${encodeURIComponent(debouncedSearch)}` : ''}`,
+        `/api/properties?sort=${sort}&limit=${feedLimit}${activeProfile ? `&profile_id=${activeProfile.id}` : ''}${areaFilter ? `&outcode=${encodeURIComponent(areaFilter)}` : ''}${isMap ? '&include_saved=true' : ''}${debouncedSearch ? `&q=${encodeURIComponent(debouncedSearch)}` : ''}${furnishParam ? `&furnished=${furnishParam}` : ''}`,
       ),
     refetchInterval: scanning ? 10000 : false,
   })
@@ -248,6 +253,21 @@ export default function FeedPage() {
               </span>
             )}
           </button>
+          {isRent && (
+            <select
+              value={furnish}
+              onChange={(e) => setFurnish(e.target.value)}
+              title="Filter rentals by furnished status"
+              className={`rounded-lg border px-3 py-1.5 text-sm dark:border-stone-700 dark:bg-stone-900 ${
+                furnish ? 'border-brand-600 text-brand-700 dark:text-brand-300' : 'border-stone-300 bg-white'
+              }`}
+            >
+              <option value="">Any furnishing</option>
+              <option value="furnished">Furnished</option>
+              <option value="unfurnished">Unfurnished</option>
+              <option value="part-furnished">Part furnished</option>
+            </select>
+          )}
           {profiles.data && profiles.data.length > 0 && (
             <select
               className="rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm dark:border-stone-700 dark:bg-stone-900"

@@ -37,6 +37,7 @@ export interface PropertyCard {
   baths: number | null
   property_type: string | null
   tenure: string | null
+  furnish_type: string | null
   epc: string | null
   floor_area_sqm: number | null
   image: string | null
@@ -139,6 +140,7 @@ export interface PropertyDetail {
     last_seen: string
     price_history: { date: string; price: number }[]
   }[]
+  furnish_type: string | null
   match: Match | null
   profile_mode: string | null
   photos_pending: boolean

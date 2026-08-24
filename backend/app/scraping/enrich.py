@@ -25,9 +25,8 @@ log = logging.getLogger("housespotter.scraping.enrich")
 # backlog drains at ~BATCH_LIMIT per half hour without hammering the portals
 BATCH_LIMIT = 30
 
-_NEXT_DATA_RE = re.compile(
-    r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', re.S
-)
+# attribute order/extras vary (OTM added crossorigin="anonymous"), so match loosely
+_NEXT_DATA_RE = re.compile(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', re.S)
 
 
 def _decode_page_model(html: str) -> dict:
@@ -112,12 +111,17 @@ def _onthemarket_media(listing: Listing) -> tuple[list[str], list[str], str | No
         for fp in prop.get("floorplans") or []
         if isinstance(fp, dict) and (fp.get("original") or fp.get("largeUrl") or fp.get("url"))
     ]
-    # lettingDetails.items is a bullet list like ["Available now", "Part furnished"]
+    # lettingDetails.items is a bullet list like ["Available now", "Part furnished"];
+    # agents often state it in features instead: [{"feature": "Unfurnished"}, ...]
+    candidates = [str(item) for item in (prop.get("lettingDetails") or {}).get("items") or []]
+    candidates += [
+        str(f.get("feature")) for f in prop.get("features") or [] if isinstance(f, dict)
+    ]
     furnish = next(
         (
-            normalize_furnish(str(item))
-            for item in (prop.get("lettingDetails") or {}).get("items") or []
-            if "furnish" in str(item).lower()
+            normalize_furnish(text)
+            for text in candidates
+            if "furnish" in text.lower()
         ),
         None,
     )

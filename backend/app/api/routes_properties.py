@@ -5,6 +5,7 @@ from ..auth import require_user
 from ..db import get_session
 from ..media import thumb_url
 from ..models import Listing, MatchScore, Property, PropertyView, SearchProfile, User
+from ..scoring.engine import _infer_furnish
 
 router = APIRouter(prefix="/api/properties", tags=["properties"])
 
@@ -20,6 +21,8 @@ def _card(prop: Property, listing: Listing | None, match: MatchScore | None, acc
         "baths": prop.baths,
         "property_type": prop.property_type,
         "tenure": prop.tenure,
+        # inferred = portal field first, listing text fallback (same as scoring)
+        "furnish_type": _infer_furnish(prop) if listing and listing.mode == "rent" else None,
         "epc": prop.epc,
         "floor_area_sqm": prop.floor_area_sqm,
         "image": thumb_url(prop.image_urls[0]) if prop.image_urls else None,
@@ -54,6 +57,7 @@ def list_properties(
     min_score: float = 0,
     outcode: str | None = None,
     q: str | None = None,
+    furnished: str | None = Query(None, pattern="^(furnished|unfurnished|part-furnished)$"),
     include_filtered: bool = False,
     include_saved: bool = False,
     limit: int = Query(60, le=2000),
@@ -89,6 +93,13 @@ def list_properties(
     # property's text (address, postcode, description, features).
     terms = [t.lower() for t in (q or "").split() if t.strip()]
 
+    # "flexible" (landlord offers either) satisfies any furnished preference
+    def matches_furnish(prop: Property) -> bool:
+        if not furnished:
+            return True
+        state = _infer_furnish(prop)
+        return state == furnished or state == "flexible"
+
     def matches_terms(prop: Property) -> bool:
         if not terms:
             return True
@@ -106,6 +117,8 @@ def list_properties(
         if outcode and prop.outcode != outcode.upper():
             continue
         if not matches_terms(prop):
+            continue
+        if not matches_furnish(prop):
             continue
         match = matches.get(prop.id)
         if profile:
@@ -142,7 +155,7 @@ def list_properties(
             for pid in saved_ids - matched_ids:
                 prop = session.get(Property, pid)
                 listing = listings_by_prop.get(pid)
-                if prop and listing and prop.lat is not None and listing.mode == profile.mode and matches_terms(prop):
+                if prop and listing and prop.lat is not None and listing.mode == profile.mode and matches_terms(prop) and matches_furnish(prop):
                     extra.append((prop, listing, None))
 
     all_rows = visible + extra
@@ -247,6 +260,8 @@ def get_property(property_id: int, profile_id: int | None = None, session: Sessi
 
     return {
         "property": prop,
+        # inferred (portal field or listing text), same view of it as scoring has
+        "furnish_type": _infer_furnish(prop) if any(l.mode == "rent" for l in listings) else None,
         "listings": listings,
         "match": match,
         "profile_mode": profile_mode,
