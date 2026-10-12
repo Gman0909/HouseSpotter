@@ -138,13 +138,19 @@ def _milestone_access_check(prop: Property, listing: Listing, profile: SearchPro
         return 0.5, "no milestones set"
     return score["typical"] / 100, f"~{round(avg_car)} min drive to your places"
 
-# Portal-style one-click exclusions: listing text mentioning any keyword fails the filter.
+# Portal-style one-click exclusions: listing text (or the portal's price qualifier,
+# e.g. "Shared ownership") mentioning any keyword fails the filter.
 EXCLUSION_CHECKS: dict[str, tuple[list[str], str]] = {
     "retirement": (
         ["retirement", "over 55", "over-55", "over 60", "age restricted", "age-restricted", "sheltered housing"],
         "Retirement property",
     ),
-    "shared_ownership": (["shared ownership", "part buy", "part-buy"], "Shared ownership"),
+    # agents usually say "40% share ... full market value £420,000" rather than the
+    # phrase itself; the portals flag it in the price qualifier
+    "shared_ownership": (
+        ["shared ownership", "part buy", "part-buy", "full market value", "staircasing"],
+        "Shared ownership",
+    ),
     "auction": (["auction"], "Auction"),
     "park_home": (["park home", "mobile home", "residential park"], "Park home"),
 }
@@ -222,7 +228,7 @@ def passes_hard_filters(prop: Property, listing: Listing, profile: SearchProfile
         entry = EXCLUSION_CHECKS.get(key)
         if entry:
             keywords, label = entry
-            blob = _text_blob(prop)
+            blob = f"{_text_blob(prop)} {(listing.price_qualifier or '').lower()}"
             if any(kw in blob for kw in keywords):
                 return False, f"excluded: {label.lower()}"
     if prop.outcode and prop.outcode.upper() in _blacklisted_outcodes(profile.user_id):

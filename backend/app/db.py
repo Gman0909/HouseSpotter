@@ -7,7 +7,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 from .config import settings
 from .models import Meta, User  # noqa: F401 — import registers all models
 
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
 
 engine = create_engine(
     f"sqlite:///{settings.db_path}",
@@ -420,6 +420,17 @@ def _migrate_v14_reenrich_onthemarket_furnish(session: Session) -> None:
     session.commit()
 
 
+def _migrate_v15_exclusion_rescore(session: Session) -> None:
+    """Exclusions now also match the portal price qualifier ("Shared ownership")
+    and more shared-ownership phrasing; invalidate cached scores for profiles that
+    use exclusions so the boot-time catch-up rescore re-judges them."""
+    session.exec(text(
+        "UPDATE searchprofile SET criteria_version = criteria_version + 1 "
+        "WHERE exclusions IS NOT NULL AND exclusions != '[]'"
+    ))
+    session.commit()
+
+
 MIGRATIONS: dict[int, list] = {
     2: [_migrate_v2_area_searches],
     3: [_migrate_v3_baseline_snapshots],
@@ -434,6 +445,7 @@ MIGRATIONS: dict[int, list] = {
     12: [_migrate_v12_strict_furnish_rescore],
     13: [_migrate_v13_split_merged_developments],
     14: [_migrate_v14_reenrich_onthemarket_furnish],
+    15: [_migrate_v15_exclusion_rescore],
 }
 
 
