@@ -1,4 +1,4 @@
-"""Purplebricks adapter — parses __NEXT_DATA__ → props.pageProps.ssrResultData.
+"""Purplebricks adapter — parses the RSC flight data embedded in the search page.
 
 Purplebricks searches by a single town slug (e.g. /property-for-sale/cambridge);
 the label is slugified, falling back to the coordinates' admin district. Listings
@@ -67,13 +67,36 @@ def _norm_type(title: str | None) -> str | None:
     return None
 
 
+_FLIGHT_PUSH_RE = re.compile(r"self\.__next_f\.push\((\[.*?\])\)</script>", re.S)
+_FLIGHT_TEXT_ROW_RE = re.compile(r"(?:^|\n)([0-9a-f]+):T([0-9a-f]+),")
+
+
 def _extract_result_data(html: str) -> dict:
-    m = re.search(
-        r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', html, re.S
+    """Since Oct 2026 Purplebricks streams React Server Components data
+    (self.__next_f.push chunks) instead of __NEXT_DATA__. The search result object
+    ({"properties": [...], "metaData": {...}}) is embedded as plain JSON; long
+    strings like descriptions are hoisted into text rows ("2a:T<hex bytes>,<text>")
+    and referenced as "$2a"."""
+    stream = "".join(
+        arr[1]
+        for arr in (json.loads(c) for c in _FLIGHT_PUSH_RE.findall(html))
+        if len(arr) > 1 and isinstance(arr[1], str)
     )
-    if not m:
-        raise ValueError("purplebricks: __NEXT_DATA__ not found")
-    return json.loads(m.group(1))["props"]["pageProps"]["ssrResultData"]
+    start = stream.find('{"properties":[')
+    if start < 0:
+        raise ValueError("purplebricks: search results not found in page")
+    data, _ = json.JSONDecoder().raw_decode(stream[start:])
+
+    raw = stream.encode("utf-8")
+    texts: dict[str, str] = {}
+    for m in _FLIGHT_TEXT_ROW_RE.finditer(stream):
+        offset = len(stream[: m.end()].encode("utf-8"))  # length prefix counts bytes
+        texts[m.group(1)] = raw[offset : offset + int(m.group(2), 16)].decode("utf-8", "replace")
+    for prop in data.get("properties") or []:
+        desc = prop.get("description")
+        if isinstance(desc, str) and desc.startswith("$"):
+            prop["description"] = texts.get(desc[1:], "")
+    return data
 
 
 def _to_listing(prop: dict, mode: str) -> NormalizedListing:

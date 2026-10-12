@@ -1,4 +1,4 @@
-"""OnTheMarket adapter — parses __NEXT_DATA__ → props.initialReduxState.results.list."""
+"""OnTheMarket adapter — parses __NEXT_DATA__ → [pageProps.]initialReduxState.results.list."""
 import json
 import logging
 import re
@@ -110,12 +110,19 @@ def _to_listing(prop: dict, mode: str) -> NormalizedListing:
     )
 
 
-def _extract_results(html: str) -> dict:
+def redux_state(html: str) -> dict:
+    """The page's Redux store from __NEXT_DATA__. OTM moved it from props to
+    props.pageProps in Oct 2026; accept either."""
     # attribute-order tolerant: OTM added crossorigin="anonymous" in Aug 2026
     m = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', html, re.S)
     if not m:
         raise ValueError("onthemarket: __NEXT_DATA__ not found")
-    return json.loads(m.group(1))["props"]["initialReduxState"]["results"]
+    props = json.loads(m.group(1))["props"]
+    return props.get("initialReduxState") or props["pageProps"]["initialReduxState"]
+
+
+def _extract_results(html: str) -> dict:
+    return redux_state(html)["results"]
 
 
 class OnTheMarketAdapter:

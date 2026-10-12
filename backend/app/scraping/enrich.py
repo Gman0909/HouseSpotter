@@ -25,9 +25,6 @@ log = logging.getLogger("housespotter.scraping.enrich")
 # backlog drains at ~BATCH_LIMIT per half hour without hammering the portals
 BATCH_LIMIT = 30
 
-# attribute order/extras vary (OTM added crossorigin="anonymous"), so match loosely
-_NEXT_DATA_RE = re.compile(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', re.S)
-
 
 def _decode_page_model(html: str) -> dict:
     """Rightmove serializes window.__PAGE_MODEL devalue-style: {"data": "<json array>"}
@@ -96,11 +93,10 @@ def _rightmove_media(listing: Listing) -> tuple[list[str], list[str], str | None
 
 
 def _onthemarket_media(listing: Listing) -> tuple[list[str], list[str], str | None]:
+    from .onthemarket import redux_state
+
     resp = fetch("onthemarket", listing.url)
-    m = _NEXT_DATA_RE.search(resp.text)
-    if not m:
-        raise ValueError("onthemarket: __NEXT_DATA__ not found in detail page")
-    prop = json.loads(m.group(1))["props"]["initialReduxState"].get("property") or {}
+    prop = redux_state(resp.text).get("property") or {}
     images = [
         img.get("largeUrl") or img.get("url")
         for img in prop.get("images") or []
